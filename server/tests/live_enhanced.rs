@@ -9,7 +9,7 @@
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicU16, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU16, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -53,6 +53,10 @@ struct MockGroq {
     calls: AtomicUsize,
     status: AtomicU16,
     targets: Mutex<Vec<String>>,
+    /// How long each call takes, in milliseconds.
+    delay_ms: AtomicU64,
+    in_flight: AtomicUsize,
+    max_in_flight: AtomicUsize,
 }
 
 impl MockGroq {
@@ -64,6 +68,12 @@ impl MockGroq {
     }
     fn targets(&self) -> Vec<String> {
         self.targets.lock().unwrap().clone()
+    }
+    fn slow(&self, ms: u64) {
+        self.delay_ms.store(ms, Ordering::SeqCst);
+    }
+    fn max_in_flight(&self) -> usize {
+        self.max_in_flight.load(Ordering::SeqCst)
     }
 }
 
@@ -89,6 +99,13 @@ async fn chat(State(m): State<Arc<MockGroq>>, Json(body): Json<Value>) -> impl I
         .map(code_of_language)
         .unwrap_or("??");
     m.targets.lock().unwrap().push(target.to_string());
+    let now = m.in_flight.fetch_add(1, Ordering::SeqCst) + 1;
+    m.max_in_flight.fetch_max(now, Ordering::SeqCst);
+    let delay = m.delay_ms.load(Ordering::SeqCst);
+    if delay > 0 {
+        tokio::time::sleep(Duration::from_millis(delay)).await;
+    }
+    m.in_flight.fetch_sub(1, Ordering::SeqCst);
     let status = m.status.load(Ordering::SeqCst);
     if status != 0 {
         return (
@@ -145,6 +162,10 @@ struct Opts {
     echo_filter: bool,
     /// Starting balance of the users `login` creates, in cents.
     balance_cents: i64,
+    /// `LIVE_ENHANCED_CALLS_PER_MIN`, when not the default.
+    calls_per_min: Option<&'static str>,
+    /// `LIVE_STATUS_CHECK_MS`, when not the default.
+    status_ms: Option<&'static str>,
 }
 
 impl Opts {
@@ -154,6 +175,8 @@ impl Opts {
             cloning: true,
             echo_filter: true,
             balance_cents: 500,
+            calls_per_min: None,
+            status_ms: None,
         }
     }
 }
@@ -247,6 +270,8 @@ async fn setup(opts: Opts) -> Option<Srv> {
             "LIVE_TOKEN_KEY" => Some(LIVE_KEY.into()),
             "LIVE_MAX_GUESTS" => Some("3".into()),
             "LIVE_ECHO_FILTER" if !opts.echo_filter => Some("0".into()),
+            "LIVE_ENHANCED_CALLS_PER_MIN" => opts.calls_per_min.map(Into::into),
+            "LIVE_STATUS_CHECK_MS" => opts.status_ms.map(Into::into),
             _ => None,
         })
         .unwrap(),
@@ -1762,9 +1787,9 @@ async fn a_phone_that_cannot_reach_cartesia_moves_the_whole_conversation_to_stan
     let enhanced_rows = |t: &[Decimal]| t.iter().filter(|a| **a == enhanced_unit(1)).count();
     assert!(enhanced_rows(&ticks(&srv, c.session, &c.host_peer).await) >= 1);
 
-    // The GUEST's phone is the one blocked.
+    // The HOST's phone is the one blocked (a guest's request is refused: see the test below).
     say(
-        &mut guest,
+        &mut host,
         json!({ "type": "enhanced_fallback", "reason": "token_refused" }),
     )
     .await;
@@ -1775,11 +1800,11 @@ async fn a_phone_that_cannot_reach_cartesia_moves_the_whole_conversation_to_stan
         assert_eq!(d["from"], CARTESIA);
         assert_eq!(d["to"], "standard");
         assert_eq!(d["reason"], "enhanced_unavailable");
-        assert_eq!(d["peer_id"], c.guests[0].1.as_str());
+        assert_eq!(d["peer_id"], c.host_peer.as_str());
     }
     // Said once: a second request changes nothing and announces nothing.
     say(
-        &mut guest,
+        &mut host,
         json!({ "type": "enhanced_fallback", "reason": "again" }),
     )
     .await;
@@ -2037,8 +2062,16 @@ async fn a_standard_conversation_and_its_sockets_are_unchanged_when_enhanced_exi
         }
     }
     assert!(heard, "Standard translated audio still flows");
-    // And its meter is the Standard rate.
-    let t = ticks(&srv, c.session, &c.host_peer).await;
+    // And its meter is the Standard rate. The opening charge commits a moment after the audio
+    // starts to flow, so wait for it instead of reading once.
+    let mut t = ticks(&srv, c.session, &c.host_peer).await;
+    for _ in 0..30 {
+        if !t.is_empty() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        t = ticks(&srv, c.session, &c.host_peer).await;
+    }
     let standard = usd(srv
         .state
         .engines
@@ -2046,4 +2079,614 @@ async fn a_standard_conversation_and_its_sockets_are_unchanged_when_enhanced_exi
         .metadata()
         .user_rate_per_second());
     assert!(!t.is_empty() && t.iter().all(|a| *a == standard), "{t:?}");
+}
+
+// ===== the verification fixes ============================================================
+
+/// The opening charges a seat took, with when each was committed.
+async fn opening_ticks(
+    srv: &Srv,
+    session: Uuid,
+    peer: &str,
+) -> Vec<(Decimal, chrono::DateTime<chrono::Utc>)> {
+    sqlx::query_as(
+        "SELECT amount, ts FROM live_usage_ticks WHERE session_id = $1 AND peer_id = $2 AND tick_seq < 0 ORDER BY ts",
+    )
+    .bind(session)
+    .bind(peer.parse::<Uuid>().unwrap())
+    .fetch_all(&srv.pool)
+    .await
+    .unwrap()
+}
+
+/// Wait until a seat's tick count stops moving.
+async fn settled(srv: &Srv, session: Uuid, peer: &str) -> Vec<Decimal> {
+    let mut last = ticks(srv, session, peer).await;
+    let mut stable = 0;
+    for _ in 0..60 {
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        let now = ticks(srv, session, peer).await;
+        stable = if now.len() == last.len() {
+            stable + 1
+        } else {
+            0
+        };
+        last = now;
+        if stable >= 4 {
+            break;
+        }
+    }
+    last
+}
+
+/// What the owner's wallet and ledger say a conversation cost, to the digit.
+async fn owner_cost(srv: &Srv, user: Uuid, before: Decimal) -> (Decimal, Decimal) {
+    let spent = before - balance(srv, user).await;
+    let ledger: Decimal = sqlx::query_scalar(
+        "SELECT COALESCE(sum(-amount), 0) FROM credit_transactions WHERE user_id = $1 AND kind = 'usage'",
+    )
+    .bind(user)
+    .fetch_one(&srv.pool)
+    .await
+    .unwrap();
+    (spent, ledger)
+}
+
+async fn a_guest_loops_start_and_stop(engine: Option<&str>, unit: Decimal) {
+    let srv = srv!(Opts::enhanced());
+    let c = convo(
+        &srv,
+        Make {
+            engine,
+            ..Make::default()
+        },
+    )
+    .await;
+    let _host = open(&srv, &c.host_token).await;
+    let mut guest = open(&srv, &c.guests[0].0).await;
+    let before = balance(&srv, c.user).await;
+    let started = std::time::Instant::now();
+    // The verifier's loop: Start, 5 ms, Stop, 1 ms, about 40 pairs a second, 200 of them.
+    for _ in 0..200 {
+        say(&mut guest, json!({ "type": "start" })).await;
+        tokio::time::sleep(Duration::from_millis(5)).await;
+        say(&mut guest, json!({ "type": "stop" })).await;
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
+    let sent_in = started.elapsed();
+    let all = settled(&srv, c.session, &c.guests[0].1).await;
+    let opening = opening_ticks(&srv, c.session, &c.guests[0].1).await;
+    assert!(
+        !opening.is_empty(),
+        "the first Start of a seat is never free"
+    );
+    // One opening charge per interval (1 s here) of the loop, however many Starts it sent: a
+    // loop of 200 used to pay about 40 a second.
+    for w in opening.windows(2) {
+        let gap = (w[1].1 - w[0].1).num_milliseconds();
+        assert!(
+            gap >= 900,
+            "two opening charges {gap} ms apart: {opening:?}"
+        );
+    }
+    assert!(
+        opening.len() <= 3,
+        "{} opening charges for a loop of {sent_in:?}: {all:?}",
+        opening.len()
+    );
+    assert!(all.iter().all(|a| *a == unit), "{all:?}");
+    let paid = unit * Decimal::from(all.len() as i64);
+    assert_eq!(owner_cost(&srv, c.user, before).await, (paid, paid));
+}
+
+#[tokio::test]
+async fn an_enhanced_guest_looping_start_and_stop_cannot_drain_the_host() {
+    a_guest_loops_start_and_stop(Some(CARTESIA), enhanced_unit(1)).await;
+}
+
+#[tokio::test]
+async fn a_standard_guest_looping_start_and_stop_cannot_drain_the_host() {
+    let srv = srv!(Opts::enhanced());
+    let unit = usd(srv
+        .state
+        .engines
+        .default()
+        .metadata()
+        .user_rate_per_second());
+    drop(srv);
+    a_guest_loops_start_and_stop(None, unit).await;
+}
+
+#[tokio::test]
+async fn honest_starts_more_than_an_interval_apart_each_pay_in_an_enhanced_conversation() {
+    let srv = srv!(Opts::enhanced());
+    let c = convo(&srv, Make::default()).await;
+    let _host = open(&srv, &c.host_token).await;
+    let mut guest = open(&srv, &c.guests[0].0).await;
+    let before = balance(&srv, c.user).await;
+    // A Start/Stop shorter than one interval is not free the first time...
+    say(&mut guest, json!({ "type": "start" })).await;
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    say(&mut guest, json!({ "type": "stop" })).await;
+    assert_eq!(ticks(&srv, c.session, &c.guests[0].1).await.len(), 1);
+    // ...and one a whole interval later pays again.
+    tokio::time::sleep(Duration::from_millis(1100)).await;
+    say(&mut guest, json!({ "type": "start" })).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    say(&mut guest, json!({ "type": "stop" })).await;
+    let all = ticks(&srv, c.session, &c.guests[0].1).await;
+    assert_eq!(all, vec![enhanced_unit(1), enhanced_unit(1)]);
+    let paid = enhanced_unit(1) * Decimal::from(2);
+    assert_eq!(owner_cost(&srv, c.user, before).await, (paid, paid));
+}
+
+// ---- D2: the echo guard cannot be used to silence somebody ------------------------------
+
+#[tokio::test]
+async fn a_short_acknowledgement_always_goes_through_even_right_after_the_other_phone_said_it() {
+    let srv = srv!(Opts::enhanced());
+    let c = convo(&srv, Make::default()).await;
+    let mut host = open(&srv, &c.host_token).await;
+    let mut guest = open(&srv, &c.guests[0].0).await;
+    start(&mut host).await;
+    start(&mut guest).await;
+    for (phrase_guest, phrase_host) in [
+        ("ok perfecto", "ok perfecto"),
+        ("vale gracias", "vale, gracias"),
+        ("ok", "ok"),
+    ] {
+        // The guest says it first, and the host (whose phone may be about to be played it) says
+        // the same right away: both are real words and both are translated.
+        text(&mut guest, "g", phrase_guest, true).await;
+        let to_host = wait_for(&mut host, |v| v["type"] == "enhanced_speak").await;
+        assert!(
+            to_host.is_some(),
+            "the guest's {phrase_guest:?} was dropped"
+        );
+        text(&mut host, "h", phrase_host, true).await;
+        let to_guest = wait_for(&mut guest, |v| v["type"] == "enhanced_speak").await;
+        assert!(to_guest.is_some(), "the host's {phrase_host:?} was dropped");
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    assert_eq!(srv.groq.calls(), 6, "every acknowledgement was translated");
+}
+
+#[tokio::test]
+async fn a_reply_that_repeats_what_was_spoken_to_the_phone_after_the_window_is_a_real_reply() {
+    let srv = srv!(Opts::enhanced());
+    let c = convo(&srv, Make::default()).await;
+    let mut host = open(&srv, &c.host_token).await;
+    let mut guest = open(&srv, &c.guests[0].0).await;
+    start(&mut host).await;
+    start(&mut guest).await;
+    // The guest's words are spoken on the host's phone; the host answers with the same words.
+    text(&mut guest, "g1", "ok perfecto lo hago ahora mismo", true).await;
+    let speak = wait_for(&mut host, |v| v["type"] == "enhanced_speak")
+        .await
+        .unwrap();
+    let spoken = speak["text"]
+        .as_str()
+        .unwrap()
+        .trim_start_matches("it|")
+        .to_string();
+    // Inside the window it is the host's own phone hearing its own TTS: still dropped.
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    let before = srv.groq.calls();
+    text(&mut host, "h1", &spoken, true).await;
+    assert!(collect(&mut guest, 500)
+        .await
+        .iter()
+        .all(|v| !is_listener_frame(v)));
+    assert_eq!(
+        srv.groq.calls(),
+        before,
+        "a verbatim echo of the TTS is still dropped"
+    );
+    // The same words after the window (it used to be 12 s) are the host speaking.
+    tokio::time::sleep(Duration::from_millis(3200)).await;
+    text(&mut host, "h2", &spoken, true).await;
+    let heard = wait_for(&mut guest, |v| v["type"] == "enhanced_speak").await;
+    assert!(heard.is_some(), "the host's reply 4.7 s later was silenced");
+    assert_eq!(srv.groq.calls(), before + 1);
+}
+
+#[tokio::test]
+async fn a_guest_sending_the_hosts_short_phrase_first_cannot_silence_the_host() {
+    let srv = srv!(Opts::enhanced());
+    let c = convo(&srv, Make::default()).await;
+    let mut host = open(&srv, &c.host_token).await;
+    let mut guest = open(&srv, &c.guests[0].0).await;
+    start(&mut host).await;
+    start(&mut guest).await;
+    // The guest "pre-sends" what the host is about to say; the host says it a moment later.
+    for phrase in ["sì certo", "va bene", "ok grazie"] {
+        text(&mut guest, "g", phrase, true).await;
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        let before = srv.groq.calls();
+        text(&mut host, "h", phrase, true).await;
+        let heard = wait_for(&mut guest, |v| v["type"] == "enhanced_speak").await;
+        assert!(heard.is_some(), "the host's {phrase:?} was silenced");
+        assert!(srv.groq.calls() > before);
+    }
+}
+
+#[tokio::test]
+async fn text_the_partner_phone_sends_after_both_windows_is_a_new_utterance() {
+    let srv = srv!(Opts::enhanced());
+    let c = convo(&srv, Make::default()).await;
+    let mut host = open(&srv, &c.host_token).await;
+    let mut guest = open(&srv, &c.guests[0].0).await;
+    start(&mut host).await;
+    start(&mut guest).await;
+    text(&mut host, "h1", "ciao come stai oggi amico", true).await;
+    wait_for(&mut guest, |v| v["type"] == "enhanced_speak")
+        .await
+        .unwrap();
+    // 4.3 s later (the windows are 2.5 s and 4 s) the same words from the guest are not "heard
+    // second", and not its own phone's TTS either.
+    tokio::time::sleep(Duration::from_millis(4300)).await;
+    text(&mut guest, "g1", "ciao come stai oggi amico", true).await;
+    let heard = wait_for(&mut host, |v| v["type"] == "enhanced_speak").await;
+    assert!(heard.is_some());
+}
+
+// ---- D3: only the host moves the conversation off Enhanced ------------------------------
+
+#[tokio::test]
+async fn a_guest_cannot_move_the_conversation_off_enhanced_or_cancel_the_hosts_voice() {
+    let srv = srv!(Opts::enhanced());
+    let c = convo(
+        &srv,
+        Make {
+            voice_clone: true,
+            clone_id: Some("vc-1"),
+            ..Make::default()
+        },
+    )
+    .await;
+    let mut host = open(&srv, &c.host_token).await;
+    let mut guest = open(&srv, &c.guests[0].0).await;
+    start(&mut host).await;
+    start(&mut guest).await;
+    let guest_ticks = ticks(&srv, c.session, &c.guests[0].1).await.len();
+
+    // A burst of requests from the guest: one error, said once, and nothing else happens.
+    for _ in 0..5 {
+        say(
+            &mut guest,
+            json!({ "type": "enhanced_fallback", "reason": "because I can" }),
+        )
+        .await;
+    }
+    let got = collect(&mut guest, 600).await;
+    let errors: Vec<_> = of_type(&got, "error")
+        .into_iter()
+        .filter(|v| v["code"] == "fallback_not_allowed")
+        .collect();
+    assert_eq!(
+        errors.len(),
+        1,
+        "told once per 10 s, not per frame: {got:?}"
+    );
+    assert!(collect(&mut host, 300)
+        .await
+        .iter()
+        .all(|v| v["type"] != "engine_downgraded"));
+    assert!(!srv.state.live.is_downgraded(c.session));
+
+    // The tier, the voice choice and the token endpoint are exactly as they were.
+    let (_, view) = srv
+        .get(&format!("/api/live/sessions/{}", c.session), &c.host_token)
+        .await;
+    assert_eq!(view["session"]["engine"], CARTESIA);
+    assert_eq!(view["session"]["voice_clone"], true);
+    let (s, _) = srv
+        .post(&token_path(c.session), Some(&c.guests[0].0), json!({}))
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    // The conversation still runs on text, in the host's cloned voice, and its meters still run.
+    text(&mut host, "h1", "buongiorno a tutti voi", true).await;
+    let speak = wait_for(&mut guest, |v| v["type"] == "enhanced_speak")
+        .await
+        .unwrap();
+    assert_eq!(speak["voice_id"], "vc-1");
+    text(&mut guest, "g1", "hola a todos amigos", true).await;
+    assert!(wait_for(&mut host, |v| v["type"] == "enhanced_speak")
+        .await
+        .is_some());
+    tokio::time::sleep(Duration::from_millis(1300)).await;
+    assert!(ticks(&srv, c.session, &c.guests[0].1).await.len() > guest_ticks);
+
+    // The host's own request is honoured, as before.
+    say(&mut host, json!({ "type": "enhanced_fallback" })).await;
+    assert!(wait_for(&mut guest, |v| v["type"] == "engine_downgraded")
+        .await
+        .is_some());
+}
+
+/// A seat whose conversation fell back to Standard (because the HOST asked) and that never
+/// re-sends `start` must have its Enhanced meter ended by the periodic status check, not left
+/// running. Observable through usage that was already pending: a text frame accepted just before
+/// the fallback is billed at the next tick if the meter is still alive, and not if the status
+/// check ended it first. (Status check shortened to 200 ms so the timing has a wide margin.)
+#[tokio::test]
+async fn after_a_fallback_a_guest_that_never_restarts_has_its_enhanced_meter_ended() {
+    let srv = srv!(Opts {
+        status_ms: Some("200"),
+        ..Opts::enhanced()
+    });
+    let c = convo(&srv, Make::default()).await;
+    let mut host = open(&srv, &c.host_token).await;
+    let mut guest = open(&srv, &c.guests[0].0).await;
+    start(&mut host).await;
+    say(&mut guest, json!({ "type": "start" })).await;
+    // The guest's opening charge dates its meter; its ticks fall a second apart from there.
+    let mut opened = None;
+    for _ in 0..30 {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        if let Some((_, ts)) = opening_ticks(&srv, c.session, &c.guests[0].1).await.first() {
+            opened = Some(*ts);
+            break;
+        }
+    }
+    let opened = opened.expect("the guest's opening charge");
+    let since = || (chrono::Utc::now() - opened).num_milliseconds();
+    // Just after the first tick (1.0 s): a frame the next tick would bill, then the host's fallback.
+    tokio::time::sleep(Duration::from_millis((1150 - since()).max(0) as u64)).await;
+    let before = ticks(&srv, c.session, &c.guests[0].1).await;
+    text(&mut guest, "g1", "hola a todos amigos", true).await;
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    say(&mut host, json!({ "type": "enhanced_fallback" })).await;
+    let sent_at = since();
+    wait_for(&mut guest, |v| v["type"] == "engine_downgraded")
+        .await
+        .unwrap();
+    // Past the next tick (2.0 s) with room to spare.
+    tokio::time::sleep(Duration::from_millis((2700 - since()).max(0) as u64)).await;
+    if sent_at > 1600 {
+        eprintln!("skipping the timing check: the machine was too slow ({sent_at} ms)");
+        return;
+    }
+    assert_eq!(
+        ticks(&srv, c.session, &c.guests[0].1).await,
+        before,
+        "the guest's Enhanced meter charged after the conversation left Enhanced"
+    );
+    // And nothing at all after it, whatever the guest keeps sending.
+    for i in 0..5 {
+        text(
+            &mut guest,
+            &format!("g{i}"),
+            &format!("mas palabras nuevas {i}"),
+            true,
+        )
+        .await;
+        let _ = guest.send(Message::binary(vec![9u8; 4800])).await;
+        tokio::time::sleep(Duration::from_millis(300)).await;
+    }
+    assert_eq!(ticks(&srv, c.session, &c.guests[0].1).await, before);
+    drop(host);
+}
+
+// ---- amplification: what one seat can make the translation hop do -----------------------
+
+fn long_text(chars: usize) -> String {
+    let word = "palabra ";
+    word.repeat(chars / word.len() + 1)
+        .chars()
+        .take(chars)
+        .collect()
+}
+
+#[tokio::test]
+async fn interim_captions_are_two_a_second_and_cut_to_their_last_four_hundred_characters() {
+    let srv = srv!(Opts::enhanced());
+    let c = convo(&srv, Make::default()).await;
+    let mut host = open(&srv, &c.host_token).await;
+    let mut guest = open(&srv, &c.guests[0].0).await;
+    start(&mut host).await;
+    start(&mut guest).await;
+
+    // A storm of partials: 20 a second for three seconds.
+    let before = srv.groq.calls();
+    for i in 0..60 {
+        text(
+            &mut guest,
+            "p",
+            &format!("{} palabra uno dos tres", number_word(i)),
+            false,
+        )
+        .await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let calls = srv.groq.calls() - before;
+    // A burst of two plus two a second.
+    assert!(
+        (1..=9).contains(&calls),
+        "{calls} translation calls for 60 partials"
+    );
+    let _ = collect(&mut host, 100).await;
+
+    // Finals are not held back by it: a normal exchange still gets every final translated.
+    tokio::time::sleep(Duration::from_millis(1100)).await;
+    for i in 0..4 {
+        text(
+            &mut guest,
+            &format!("f{i}"),
+            &format!("hola {} amigos", number_word(i)),
+            true,
+        )
+        .await;
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    let got = collect(&mut host, 800).await;
+    assert_eq!(of_type(&got, "enhanced_speak").len(), 4);
+
+    // A long partial is cut to its LAST 400 characters; a final of the same length is whole.
+    tokio::time::sleep(Duration::from_millis(1100)).await;
+    let long = format!("{} fin del texto", long_text(980));
+    text(&mut guest, "long", &long, false).await;
+    let cut = wait_for(&mut host, |v| v["type"] == "subtitle_interim")
+        .await
+        .unwrap();
+    let shown = cut["text"].as_str().unwrap().trim_start_matches("it|");
+    assert_eq!(shown.chars().count(), 400);
+    assert!(long.ends_with(shown) && shown.ends_with("fin del texto"));
+    text(&mut guest, "whole", &long, true).await;
+    let whole = wait_for(&mut host, |v| v["type"] == "enhanced_speak")
+        .await
+        .unwrap();
+    assert_eq!(
+        whole["text"].as_str().unwrap().trim_start_matches("it|"),
+        long
+    );
+    // A final over the limit is still refused, not cut.
+    text(&mut guest, "toolong", &long_text(1001), true).await;
+    let err = wait_for(&mut guest, |v| v["type"] == "error")
+        .await
+        .unwrap();
+    assert_eq!(err["code"], "text_too_long");
+}
+
+#[tokio::test]
+async fn a_seat_has_at_most_two_translation_calls_in_flight_and_every_final_still_arrives() {
+    let srv = srv!(Opts::enhanced());
+    let c = convo(
+        &srv,
+        Make {
+            guest_langs: &["es", "en", "fr"],
+            ..Make::default()
+        },
+    )
+    .await;
+    let mut host = open(&srv, &c.host_token).await;
+    let mut es = open(&srv, &c.guests[0].0).await;
+    let mut en = open(&srv, &c.guests[1].0).await;
+    let mut fr = open(&srv, &c.guests[2].0).await;
+    start(&mut host).await;
+    srv.groq.slow(250);
+
+    // A final goes to three languages: three calls, never more than two at once, all delivered.
+    text(&mut host, "h1", "buongiorno a tutti voi", true).await;
+    for (ws, lang) in [(&mut es, "es"), (&mut en, "en"), (&mut fr, "fr")] {
+        let speak = wait_for(ws, |v| v["type"] == "enhanced_speak")
+            .await
+            .unwrap_or_else(|| panic!("the {lang} listener never heard the final"));
+        assert_eq!(speak["lang"], lang);
+    }
+    assert_eq!(srv.groq.calls(), 3);
+    assert_eq!(srv.groq.max_in_flight(), 2);
+
+    // An interim caption that cannot have all three is not an error: two languages get it, and
+    // which two rotates, so nobody is left out for good.
+    tokio::time::sleep(Duration::from_millis(1200)).await;
+    let (before, seen_before) = (srv.groq.calls(), srv.groq.targets().len());
+    text(&mut host, "p1", "buongiorno a tutti", false).await;
+    tokio::time::sleep(Duration::from_millis(700)).await;
+    text(&mut host, "p2", "buongiorno a tutti voi", false).await;
+    tokio::time::sleep(Duration::from_millis(700)).await;
+    assert_eq!(
+        srv.groq.calls() - before,
+        4,
+        "two of three languages, twice"
+    );
+    let mut langs: Vec<String> = srv.groq.targets()[seen_before..].to_vec();
+    langs.sort();
+    langs.dedup();
+    assert_eq!(langs, ["en", "es", "fr"], "the skipped language rotates");
+    assert_eq!(srv.groq.max_in_flight(), 2);
+    for ws in [&mut es, &mut en, &mut fr] {
+        let _ = collect(ws, 50).await;
+    }
+}
+
+#[tokio::test]
+async fn one_conversation_has_a_ceiling_of_translation_calls_a_minute() {
+    let srv = srv!(Opts {
+        calls_per_min: Some("20"),
+        ..Opts::enhanced()
+    });
+    let c = convo(&srv, Make::default()).await;
+    let mut host = open(&srv, &c.host_token).await;
+    let mut guest = open(&srv, &c.guests[0].0).await;
+    start(&mut host).await;
+    start(&mut guest).await;
+    // The verifier's abuse: a guest offering 50 finals a second.
+    let t0 = tokio::time::Instant::now();
+    let mut i = 0usize;
+    while t0.elapsed() < Duration::from_secs(4) {
+        text(
+            &mut guest,
+            &format!("f{i}"),
+            &format!("{} {}", number_word(i), long_text(300)),
+            true,
+        )
+        .await;
+        i += 1;
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let calls = srv.groq.calls();
+    assert!(
+        (15..=20).contains(&calls),
+        "the ceiling is 20 a minute, {calls} calls were made for {i} frames"
+    );
+    // Told once, not per frame.
+    let got = collect(&mut guest, 300).await;
+    let told = of_type(&got, "error")
+        .into_iter()
+        .filter(|v| v["code"] == "translation_unavailable")
+        .count();
+    assert_eq!(told, 1, "{got:?}");
+}
+
+#[tokio::test]
+async fn a_normal_three_phone_exchange_is_untouched_by_the_limits() {
+    let srv = srv!(Opts::enhanced());
+    let c = convo(
+        &srv,
+        Make {
+            guest_langs: &["es", "en"],
+            ..Make::default()
+        },
+    )
+    .await;
+    let mut host = open(&srv, &c.host_token).await;
+    let mut es = open(&srv, &c.guests[0].0).await;
+    let mut en = open(&srv, &c.guests[1].0).await;
+    for ws in [&mut host, &mut es, &mut en] {
+        start(ws).await;
+    }
+    // Each phone speaks four sentences, one after the other, each with a few interim captions.
+    for round in 0..4 {
+        for who in 0..3 {
+            let ws = match who {
+                0 => &mut host,
+                1 => &mut es,
+                _ => &mut en,
+            };
+            let words = format!(
+                "frase {} numero {} del giro",
+                number_word(round * 3 + who),
+                round
+            );
+            text(
+                ws,
+                "i",
+                &words.split(' ').take(3).collect::<Vec<_>>().join(" "),
+                false,
+            )
+            .await;
+            tokio::time::sleep(Duration::from_millis(120)).await;
+            text(ws, &format!("s{round}{who}"), &words, true).await;
+            tokio::time::sleep(Duration::from_millis(550)).await;
+        }
+    }
+    let mut speaks = 0;
+    for ws in [&mut host, &mut es, &mut en] {
+        speaks += of_type(&collect(ws, 800).await, "enhanced_speak").len();
+    }
+    // 12 finals, each spoken on the two other phones.
+    assert_eq!(speaks, 24, "every final was translated and spoken");
 }

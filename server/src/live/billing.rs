@@ -242,6 +242,20 @@ impl LiveMeter {
                     else {
                         continue;
                     };
+                    // At most one opening charge per seat per interval: a Start right after
+                    // another one is a rapid Start/Stop loop, which would otherwise pay the full
+                    // opening charge each time while sending nothing (see `claim_opening`). Its
+                    // real usage is still billed by the ordinary ticks. Claimed only once there is
+                    // somebody to translate for, so a Start in an empty room does not use it up.
+                    if is_first
+                        && !self.live.claim_opening(
+                            self.session,
+                            self.peer,
+                            Duration::from_secs(interval),
+                        )
+                    {
+                        continue;
+                    }
                     let amount = usd(self.rate_per_second * interval as f64 * streams as f64);
                     // The wall-clock bucket makes two meters covering the same interval agree, so
                     // one of them is harmless. The opening charge of a run cannot use it: a phone

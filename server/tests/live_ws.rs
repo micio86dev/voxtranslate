@@ -910,11 +910,15 @@ async fn starting_and_stopping_repeatedly_is_not_free() {
     let mut guest = open(&srv, &c.guest_token).await;
 
     // Four bursts of speech, each shorter than one billing interval (1 s here, 5 s in
-    // production). Charging only in arrears let every one of them through unpaid.
+    // production), each starting more than an interval after the previous one. Charging only in
+    // arrears let every one of them through unpaid. (Starts closer together than an interval
+    // share one opening charge, so a Start/Stop loop cannot drain the owner: see
+    // `tests/live_enhanced.rs` and `tests/live_billing.rs`.)
     for _ in 0..4 {
         say(&mut host, json!({ "type": "start" })).await;
         let _ = both_speak(&mut host, &mut guest, 600).await;
         say(&mut host, json!({ "type": "stop" })).await;
+        tokio::time::sleep(Duration::from_millis(700)).await;
     }
     tokio::time::sleep(Duration::from_millis(500)).await;
 

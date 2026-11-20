@@ -44,9 +44,6 @@ use crate::{
     WS_PING_INTERVAL,
 };
 
-/// How often a connected phone re-checks that its conversation is still open. The database
-/// is the source of truth for "has it ended", so no in-memory registry has to agree with it.
-const STATUS_CHECK: Duration = Duration::from_secs(3);
 /// How long the writer gets to flush the last frames (the end-of-conversation notice) before
 /// the socket is dropped.
 const FLUSH_GRACE: Duration = Duration::from_secs(2);
@@ -631,7 +628,10 @@ async fn handle_live_peer(socket: WebSocket, state: AppState, auth: PeerAuth) {
         None
     };
     let mut frame_gate = FrameGate::new(tokio::time::Instant::now());
+    let mut partial_gate =
+        FrameGate::with_rate(enhanced::PARTIALS_PER_SEC, tokio::time::Instant::now());
     let mut enhanced_notice = Notifier::default();
+    let mut fallback_notice = Notifier::default();
     let mut told_not_enhanced = false;
     let mut echo_dropped: u64 = 0;
     // The meter running is the Enhanced "started" state (there is no engine session to hold it).
@@ -665,7 +665,11 @@ async fn handle_live_peer(socket: WebSocket, state: AppState, auth: PeerAuth) {
     let mut last_activity = tokio::time::Instant::now();
     let mut idle_check = tokio::time::interval(WS_PING_INTERVAL);
     idle_check.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    let mut status_check = tokio::time::interval(STATUS_CHECK);
+    // How often a connected phone re-checks that its conversation is still open (default 3 s, see
+    // `LiveConfig::status_check_ms`). The database is the source of truth for "has it ended", so no
+    // in-memory registry has to agree with it.
+    let mut status_check =
+        tokio::time::interval(Duration::from_millis(state.live.config.status_check_ms));
     status_check.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut end_notice: Option<ServerMessage> = None;
     let ceiling = chrono::Duration::minutes(state.live.config.max_session_min);
@@ -771,6 +775,10 @@ async fn handle_live_peer(socket: WebSocket, state: AppState, auth: PeerAuth) {
                                     if body.is_empty() || !enhanced::valid_segment_id(&segment_id) {
                                         continue;
                                     }
+                                    // An interim caption is only the newest words: cut to the last
+                                    // few hundred characters instead of refused, so it can never
+                                    // cost more than that at the paid translation hop.
+                                    let body = if is_final { body } else { enhanced::clip_partial(body) };
                                     if body.chars().count() > enhanced::MAX_TEXT_CHARS {
                                         if enhanced_notice.due(tokio::time::Instant::now()) {
                                             let _ = out_tx.send(ServerMessage::Error {
@@ -781,6 +789,11 @@ async fn handle_live_peer(socket: WebSocket, state: AppState, auth: PeerAuth) {
                                         continue;
                                     }
                                     let now = tokio::time::Instant::now();
+                                    // Interim captions have a smaller allowance than finals, and
+                                    // are checked first so a dropped one costs a final nothing.
+                                    if !is_final && !partial_gate.admit(now) {
+                                        continue;
+                                    }
                                     if !frame_gate.admit(now) {
                                         continue;
                                     }
@@ -811,8 +824,21 @@ async fn handle_live_peer(socket: WebSocket, state: AppState, auth: PeerAuth) {
                                         }
                                     }
                                 }
+                                EnhancedFrame::Fallback { .. } if auth.role != PeerRole::Host => {
+                                    // The whole conversation's tier and the host's voice choice
+                                    // are the host's, and one guest's blocked network must not
+                                    // take them from everybody. A guest that cannot reach Cartesia
+                                    // keeps its captions; it just cannot be spoken to. Told at
+                                    // most once in a while, never a stream of events.
+                                    if fallback_notice.due(tokio::time::Instant::now()) {
+                                        let _ = out_tx.send(ServerMessage::Error {
+                                            message: "only the host can change the tier".into(),
+                                            code: Some("fallback_not_allowed".into()),
+                                        }.to_json());
+                                    }
+                                }
                                 EnhancedFrame::Fallback { .. } => {
-                                    // Cartesia is unreachable for this phone (token refused,
+                                    // The host's phone cannot reach Cartesia (token refused,
                                     // blocked network). The WHOLE conversation moves to Standard,
                                     // once: every phone, not just this one, because they all
                                     // depend on each other's text and speech.

@@ -119,9 +119,17 @@ What the audit (2026-11-19, branch `develop`) established and this spec relies o
   `translate_text`, the server translates once per distinct other language and sends each listener captions
   and an `enhanced_speak` (the host's `voice_id` only when the conversation opted in, never for a guest),
   the owner pays every seat at the Enhanced rate for the frames actually accepted, an echo of another seat's
-  text is dropped, a guest can mint a rate-limited TTS/STT token with only its live token, and an
+  text (at least three words, at least 0.85 similar, within a few seconds) is dropped but a short reply
+  never is, a guest can mint a rate-limited TTS/STT token with only its live token, and the HOST's
   `enhanced_fallback` moves the whole conversation to Standard with one `engine_downgraded`
-  (`reason:"enhanced_unavailable"`). Business conversations and desks stay Standard.
+  (`reason:"enhanced_unavailable"`; a guest's gets `fallback_not_allowed` and changes nothing). Business
+  conversations and desks stay Standard.
+- **R18 — No seat can drain the owner or the translation hop.** *Given* any tier, *when* a seat sends
+  `start`/`stop` in a loop, *then* it takes at most one opening charge per `usage_update_interval` (the
+  first short Start is still charged, an honest Start an interval later is charged again); *and given* an
+  Enhanced seat flooding `translate_text`, *then* partials are limited to 2 a second and 400 characters,
+  a seat has at most 2 translation calls in flight, and a conversation at most
+  `LIVE_ENHANCED_CALLS_PER_MIN` (default 600) calls a minute, while an honest exchange is unaffected.
 
 ## 4. Design & Architecture
 

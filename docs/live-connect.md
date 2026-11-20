@@ -117,7 +117,8 @@ desk) and `LIVE_AUDIO_MAX_BYTES_PER_SEC` (default 72 000: the microphone budget 
 *`/ws/live`*). `LIVE_MAX_GUESTS` (default and ceiling 3, clamped to 1-3, junk keeps the default) is the
 most guests a host may ask one link to admit; a room holds four peers, so it can only be lowered. The echo filter has two knobs, `LIVE_ECHO_FILTER` (default on) and `LIVE_ECHO_SIM`
 (default 0.6, clamped to 0.3-0.95; junk falls back to the default instead of switching the feature
-off), see *Echo filter* below.
+off), see *Echo filter* below. `LIVE_ENHANCED_CALLS_PER_MIN` (default 600, 10-100000, a bad value is a configuration
+error like the other limits) caps the translation calls one Enhanced conversation may make a minute, see *Cost ceilings*.
 
 ## API
 
@@ -369,13 +370,14 @@ A listener whose language is the speaker's gets the original as a caption, no tr
 | Direction | Frame | Notes |
 |---|---|---|
 | client → server | `{"type":"start"}` / `{"type":"stop"}` / `{"type":"mute_audio","muted"}` | the SAME frames as the audio path: `start` opens the seat's meter (the "speaking" state, at the Enhanced rate) and creates no engine session; `stop` closes it; `mute_audio` is enforced: a muted seat's text is ignored |
-| client → server | `{"type":"translate_text","segment_id","text","final":bool,"lang"?}` | only while started and unmuted. `segment_id`: string of 1-64 chars or an integer, echoed on `enhanced_speak`. `text` is trimmed, 1-1000 chars (longer: dropped, `error{code:"text_too_long"}`). At most 8 frames/s per seat (burst 8); past that frames are **dropped**, not queued, and not billed. `lang` is ignored: the seat's declared language is authoritative |
+| client → server | `{"type":"translate_text","segment_id","text","final":bool,"lang"?}` | only while started and unmuted. `segment_id`: string of 1-64 chars or an integer, echoed on `enhanced_speak`. `text` is trimmed, 1-1000 chars (a longer **final** is dropped, `error{code:"text_too_long"}`; a longer **partial** is cut to its last 400 characters, see *Cost ceilings*). At most 8 frames/s per seat (burst 8), and at most **2 partials/s** (burst 2); past that frames are **dropped**, not queued, and not billed. `lang` is ignored: the seat's declared language is authoritative |
 | server → listener | `subtitle_interim{speaker_id,speaker_name,text,lang,original?}` | for a non-final frame. `lang` is the SPEAKER's language, `text` the translation, `original` the speaker's words (absent for a same-language listener, whose `text` is the original). Exactly the engine tiers' frame |
 | server → listener | `subtitle_final{speaker_id,speaker_name,original,lang,translations:{<listener lang>:text}}` | for a final frame, exactly the engine tiers' frame |
 | server → listener | `{"type":"enhanced_speak","speaker_id","segment_id","lang","text","voice_id":string|null}` | final segments only; `lang` is the listener's language, `text` what to speak. `voice_id` is the HOST's cloned voice only when the session has `use_voice_clone` and the speaker is the host; otherwise `null` (use the default voice). A guest never has one |
 | server → speaker | `error{code:"translation_unavailable"}` | a language failed or timed out (6 s) for a segment; once per 10 s per seat. Nothing is spoken in the wrong language |
 | server → seat | `error{code:"enhanced_not_active"}` | `translate_text` on a conversation that is not (or no longer) Enhanced; once per socket |
-| client → server | `{"type":"enhanced_fallback","reason"?}` | Cartesia is unreachable for this phone (token refused, blocked network). **The whole conversation** moves to Standard, once |
+| client → server | `{"type":"enhanced_fallback","reason"?}` | the **host's** phone cannot reach Cartesia (token refused, blocked network). **The whole conversation** moves to Standard, once. Honoured from the host only: a guest's frame changes nothing and gets `error{code:"fallback_not_allowed"}` (at most once per 10 s per seat) |
+| server → guest | `error{code:"fallback_not_allowed"}` | a guest sent `enhanced_fallback`. A guest whose phone cannot use Cartesia (restricted network) keeps receiving captions, but cannot be spoken to or for; the client says so. The conversation's tier and the host's voice choice are the host's |
 | server → all seats | `{"type":"engine_downgraded","peer_id","from":"cartesia","to":"standard","reason":"enhanced_unavailable"}` | what a client does after it: stop its Cartesia STT/TTS, keep the socket, send `start` and stream PCM16 (binary frames, 24 kHz mono) like a Standard conversation. `GET …/sessions/{id}` now says `standard`; `POST …/enhanced/session` answers `409 not_enhanced`. A seat's Enhanced meter ends at once (or within 3 s for a seat that did not ask) and its next `start` is metered at Standard's rate |
 
 ### Token endpoint
@@ -400,7 +402,7 @@ Same meter as every tier. The owner pays every seat at the Enhanced rate per dis
 meter's `activity` is the number of **accepted** `translate_text` frames since the last tick: a seat that
 sends nothing pays nothing after the opening charge, and a frame that is dropped (muted, not started,
 oversized, over the rate cap, an echo) is never billed. Ticks stay idempotent and the org carry is untouched
-(Enhanced is consumer-only). Honest note: the opening charge is unconditional as for every tier, although
+(Enhanced is consumer-only). Honest note: the opening charge is unconditional (once per seat per interval, see *Opening charge*), although
 no server session opens; the Cartesia STT/TTS cost the platform pays is for the audio the phone streams,
 which this meter can only approximate through text frames.
 
@@ -408,18 +410,53 @@ which this meter can only approximate through text frames.
 
 Two phones side by side: the partner's phone hears the speaker too, and ITS Cartesia STT sends the
 speaker's words as its own `translate_text`. There are no microphone levels in this mode, so the guard is
-**order based**: a frame (partial or final, at least two words) whose normalised text is similar
-(`LIVE_ECHO_SIM`, default 0.6, the same `echo::normalize`/`similarity` as the audio filter) to something
-**another seat sent in the last 4 s** is dropped: the real speaker's own STT is normally ahead of a
-bystander's. It is counted in `voxtranslate_live_echo_suppressed_total` and in the `diagnostics` event
+**order based**: a frame (partial or final, at least **three** words, or one long token of a script written
+without spaces) whose normalised text is at least **0.85** similar (`LIVE_ECHO_SIM` can only make this
+stricter; the same `echo::normalize`/`similarity` as the audio filter) to something **another seat sent in
+the last 2.5 s** is dropped: the real speaker's own STT is normally ahead of a bystander's. It is counted in
+`voxtranslate_live_echo_suppressed_total` and in the `diagnostics` event
 (`echo_filter:{suppressed,failed_open:0,text:true}`), never logged with text. `LIVE_ECHO_FILTER=0` turns
-it off. **Limits, stated honestly:** when the bystander's STT happens to win the race, the echo is kept and
-the real words are dropped (nothing breaks the tie without loudness); a cross-language echo (a Spanish ear
-transcribing Italian) is too garbled to match; one-word text is never judged. A phone also hears its own
-text-to-speech: what was last sent to be spoken to a language is remembered for 12 s, and a seat of that
-language whose text is similar to it is dropped, so a phone never translates its own voice back. The
-client should still pause or echo-cancel STT while it plays TTS; this is the backstop. The audio-level
-echo filter is bypassed in Enhanced (it would only hold captions back) and applies again after a fallback.
+it off. A phone also hears its own text-to-speech: what was last sent to be spoken to a language is
+remembered for **4 s**, and a seat of that language whose text is similar to it is dropped, so a phone never
+translates its own voice back. The client pauses or echo-cancels STT while it plays TTS; this is the
+backstop.
+
+A guard that decides "who said it first" is also a way to silence somebody, so it is narrow on purpose:
+
+- a one- or two-word reply ("ok perfecto", "vale gracias") is **never** judged, so an acknowledgement always
+  goes through, whatever anyone sent before it;
+- a seat is not dropped for text another seat sent while THAT seat was itself being played this seat's
+  words (its text is then the echo, this seat is the speaker), nor when it had already said the same
+  thing earlier itself;
+- the windows are seconds, not a long memory.
+
+**Limits, stated honestly:** when the bystander's STT happens to win the race, the echo is kept and the real
+words are dropped (nothing breaks the tie without loudness); a cross-language echo (a Spanish ear
+transcribing Italian) is too garbled to match. A deliberate adversary can still win ONE segment: a guest
+who sends the exact words of a long, predictable host sentence a moment before the host says it gets that
+segment dropped, and a verbatim repeat of a 3+-word sentence within 4 s of its translation being spoken is
+taken for the phone's own TTS. Each costs one segment, never the conversation, and nobody is billed for a
+dropped frame. The audio-level echo filter is bypassed in Enhanced (it would only hold captions back) and
+applies again after a fallback.
+
+### Cost ceilings (what one seat can make the translation hop do)
+
+Every translated segment is one Groq call per distinct target language, behind the process-wide admission
+semaphore Standard and Meet share, and the host is not billed per call. So the platform's cost is bounded
+per seat and per conversation:
+
+- **Partials:** at most 2 a second per seat (burst 2; finals keep 8 a second), and a partial longer than
+  **400 characters** is cut to its **last** 400 (a final may be up to 1000). A dropped partial is
+  replaced by the next one; it is not billed.
+- **In flight:** at most **2** translation calls per seat at once, in front of the shared semaphore. A
+  partial that finds both busy is dropped (for a room with 3 target languages the language that goes
+  without rotates, so none is starved); a final waits its turn, so a 4-phone room with 3 languages pays one
+  extra round trip of latency for the third language of a final.
+- **Per conversation:** at most `LIVE_ENHANCED_CALLS_PER_MIN` (default **600**, range 10-100000)
+  translation calls in a minute, all seats together. Partials may use only 60 % of it, so a storm of them
+  cannot starve the finals. Past it a partial is dropped silently and a final's language gets
+  `error{code:"translation_unavailable"}` (once per 10 s). An honest single speaker in a 3-language room
+  uses about 450 a minute, two people talking at once fit. The window is a fixed minute.
 
 ### The host's cloned voice (S5)
 
@@ -541,7 +578,14 @@ reports is trusted.
   interval (a phone that reconnects before its old socket is torn down) agree and only one charge
   lands. The failure mode is under-charging, never double-charging.
 - **Opening charge.** A `start` is charged immediately, with a key of its own, because the engine
-  session is already open; otherwise a start/stop shorter than one interval would be free.
+  session is already open; otherwise a start/stop shorter than one interval would be free. At most
+  **one opening charge per seat per interval** (`LiveState::claim_opening`, in memory, pruned and
+  forgotten with the session): a `start` within one interval of that seat's previous opening charge opens
+  its meter WITHOUT one, and the ordinary per-interval ticks still bill what it really sends. Without that
+  a guest could drain the host's balance with a `start`/`stop` loop (about 40 opening charges a second, for
+  nothing translated). An honest Start/Stop/Start separated by more than the interval pays each time; the
+  first short one is never free; the claim is made only when somebody is there to translate for. Applies to
+  Standard, Premium and Enhanced alike.
 - **What is billed is audio that reached the engine**, counted per interval, not the mute flag: a
   phone cannot mute around each tick and translate for free. An interval with no forwarded audio
   after the opening charge costs nothing; nothing is charged while everyone shares the speaker's
@@ -550,8 +594,8 @@ reports is trusted.
   org pays whole credits (1 credit = 1 cent) into `organization_credits_transactions` of type
   `live_connect`, with sub-cent amounts carried to the next tick (`CreditAccumulator`). The carry is
   kept **per seat for the lifetime of the session** (`LiveState::take_owed`, keyed by session and
-  peer), not per Start: ten four-second Start/Stop cycles that are each worth 0.4 credit cost the
-  four credits they add up to, not nothing. A running total under one credit when the session ends
+  peer), not per Start: four Start/Stop cycles, each an interval apart, that are each worth half a credit
+  cost the two credits they add up to, not nothing. A running total under one credit when the session ends
   (less than one cent per seat) is not charged, exactly as for one uninterrupted run. Two meters of
   one seat covering the same interval add its cost once. The carry is in memory (the server is
   single-replica, see *Operations*); a restart forgets less than a credit per open seat.
@@ -803,7 +847,7 @@ the dashboard session detail shows the timeline to org admins. For billing, the 
 | Guest gets `session_full` | the link's `max_guests` seats are all taken (`SELECT count(*) FROM live_participants WHERE session_id = '<id>' AND role = 'guest'` against `live_sessions.max_guests`); a guest who dropped reconnects with their token, anyone else needs the host to create a new conversation with more seats (1-3, `LIVE_MAX_GUESTS`) |
 | Host's `max_guests` is refused `bad_max_guests` | not a whole number from 1 to `LIVE_MAX_GUESTS` (default 3) |
 | Host's `engine` is refused (400) | `engine_not_available`: unknown id, the Pro tier's id, or Premium / Enhanced not configured here (`GET /api/engines` lists what is enabled; `GEMINI_PREMIUM` + `GOOGLE_AI_API_KEY`; `CARTESIA_ENHANCED` + `CARTESIA_API_KEY`); `engine_not_allowed`: a business conversation asked for a tier other than Standard; `voice_clone_unavailable`: `voice_clone:true` without Enhanced, without `CARTESIA_VOICE_CLONING_ENABLED`, or without a clone on the host's account |
-| An Enhanced conversation turned into Standard | a phone sent `enhanced_fallback` (Cartesia unreachable for it): `live_session_events` kind `engine_downgraded` with `reason: enhanced_unavailable`, `live_sessions.engine_id` is now `standard`; every later tick is Standard's rate |
+| An Enhanced conversation turned into Standard | the HOST's phone sent `enhanced_fallback` (Cartesia unreachable for it; a guest's request is refused with `fallback_not_allowed`): `live_session_events` kind `engine_downgraded` with `reason: enhanced_unavailable`, `live_sessions.engine_id` is now `standard`; every later tick is Standard's rate |
 | Enhanced captions stop, speaker is told `translation_unavailable` | the translation model failed or timed out (6 s) for that segment; `GROQ_*`; at most one notice per 10 s per seat |
 | A Premium conversation turned into Standard | Premium was at capacity: `live_session_events` kind `engine_downgraded` (`from`, `to`, `reason: premium_at_capacity`, the seat), `live_sessions.engine_id` is now `standard`; every later tick is Standard's rate. Raise `GEMINI_LIVE_MAX_SESSIONS` if it is frequent |
 | Host cannot start on Premium though Standard works | the minimum balance scales with the tier (`insufficient_balance`); `GET /api/live/engines` shows `min_balance` per tier |

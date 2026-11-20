@@ -32,15 +32,31 @@
 //! ([`super::echo`]); there are none here. [`TextLog`] is therefore **order based**: a frame is
 //! dropped when it is highly similar to something ANOTHER seat sent in the last
 //! [`ECHO_WINDOW`] — the real speaker's own STT is normally ahead of a bystander's, so whoever
-//! arrived first is taken to be the speaker. When the bystander's STT happens to win the race the
-//! guard keeps the echo and drops the real words; that is the honest limit of a guard with no
-//! loudness to break the tie, and why it only judges text of at least two words.
+//! arrived first is taken to be the speaker.
 //!
 //! A phone also hears ITS OWN text-to-speech. What was last spoken to a language group is
 //! remembered for [`SPOKEN_WINDOW`], and a seat of that language whose text is similar to it is an
 //! echo of its own phone's TTS, the loop that would otherwise translate and bill a translation of
-//! a translation. (The client should also pause or echo-cancel STT while it plays TTS; this is the
-//! backstop.)
+//! a translation. (The client also pauses STT while it plays TTS; this is the backstop.)
+//!
+//! A guard like this is also a way to silence somebody: whoever sends the words first "owns" them.
+//! So it is deliberately narrow. It only judges text of at least [`TEXT_ECHO_MIN_TOKENS`] words
+//! and only drops it at a similarity of at least [`TEXT_ECHO_MIN_SIM`] (a short acknowledgement
+//! such as "ok perfecto" is never dropped), its windows are a few seconds, and it never drops a
+//! seat for text another seat sent while that other seat was itself being played this seat's
+//! words, or after this seat had already said the same thing first. What stays open: an adversary
+//! who sends the exact words of a long, predictable phrase a moment before the host says it still
+//! wins that one phrase, and a genuine verbatim repeat of a long sentence inside [`SPOKEN_WINDOW`]
+//! of its translation is taken for an echo. Both cost one segment, never the conversation.
+//!
+//! # Cost ceilings
+//!
+//! Every translated segment is one Groq call per distinct target language, behind a process-wide
+//! admission semaphore shared with Standard and Meet. One phone must not be able to spend it: an
+//! interim caption is accepted at most [`PARTIALS_PER_SEC`] a second per seat and is cut to its
+//! last [`MAX_PARTIAL_CHARS`] characters; a seat has at most [`SEAT_INFLIGHT`] calls in flight at
+//! once (interims past that are dropped, finals wait their turn); and the conversation as a whole
+//! has a per-minute ceiling of calls ([`TranslationBudget`], `LIVE_ENHANCED_CALLS_PER_MIN`).
 //!
 //! Nothing here logs or stores text outside the transcript recorder, which already holds it for
 //! conversations whose owner opted into saving. Diagnostics carry counts only.
@@ -57,7 +73,7 @@ use axum::Json;
 use chrono::Utc;
 use serde::Deserialize;
 use serde_json::{json, Value};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Semaphore};
 use tokio::time::Instant;
 use uuid::Uuid;
 
@@ -78,10 +94,31 @@ pub const MAX_TEXT_CHARS: usize = 1000;
 /// handful of partials a second; past this a frame is dropped, never queued, and not billed.
 pub const FRAMES_PER_SEC: f64 = 8.0;
 /// How long text another seat sent counts as "said first" for the echo guard.
-pub const ECHO_WINDOW: Duration = Duration::from_secs(4);
+pub const ECHO_WINDOW: Duration = Duration::from_millis(2500);
 /// How long text spoken to a language group counts as "my own phone's TTS" for the echo guard.
-/// Longer than [`ECHO_WINDOW`]: TTS plays for seconds after it is sent.
-pub const SPOKEN_WINDOW: Duration = Duration::from_secs(12);
+/// Longer than [`ECHO_WINDOW`]: TTS plays for a moment after it is sent. Kept short on purpose: a
+/// real reply a few seconds later that happens to repeat the words must get through.
+pub const SPOKEN_WINDOW: Duration = Duration::from_secs(4);
+/// Fewest words the text-level echo guard will judge. One or two words ("ok perfecto", "vale
+/// gracias") are what people genuinely answer, and are what an adversary can most cheaply guess.
+pub const TEXT_ECHO_MIN_TOKENS: usize = 3;
+/// Least similarity at which the text-level guard drops anything, whatever `LIVE_ECHO_SIM` says
+/// (that knob tunes the audio filter, and can only make this one stricter).
+pub const TEXT_ECHO_MIN_SIM: f64 = 0.85;
+/// Interim captions one seat may send per second (a burst of the same size is allowed). Finals
+/// keep [`FRAMES_PER_SEC`].
+pub const PARTIALS_PER_SEC: f64 = 2.0;
+/// Longest interim caption that is translated, in characters; a longer one is cut to its LAST
+/// this many (the newest words are what a partial is for). A final may be up to
+/// [`MAX_TEXT_CHARS`].
+pub const MAX_PARTIAL_CHARS: usize = 400;
+/// Translation calls one seat may have in flight at once.
+pub const SEAT_INFLIGHT: usize = 2;
+/// The share of the conversation's call ceiling interim captions may use, in percent; the rest is
+/// kept for finals.
+const PARTIAL_BUDGET_PERCENT: u32 = 60;
+/// The window the call ceiling is counted in.
+const BUDGET_WINDOW: Duration = Duration::from_secs(60);
 /// Longest one translation may take before the segment is given up on.
 pub const TRANSLATE_TIMEOUT: Duration = Duration::from_secs(6);
 /// A seat is told `translation_unavailable` at most once in this interval.
@@ -178,17 +215,24 @@ pub fn speak_frame(
     .to_string()
 }
 
-/// A token bucket in frames: [`FRAMES_PER_SEC`] a second with one second of burst.
+/// A token bucket in frames: `rate` a second with one second of burst.
 #[derive(Debug)]
 pub struct FrameGate {
+    rate: f64,
     tokens: f64,
     last: Instant,
 }
 
 impl FrameGate {
+    /// The gate for every frame: [`FRAMES_PER_SEC`].
     pub fn new(now: Instant) -> Self {
+        Self::with_rate(FRAMES_PER_SEC, now)
+    }
+
+    pub fn with_rate(rate: f64, now: Instant) -> Self {
         Self {
-            tokens: FRAMES_PER_SEC,
+            rate,
+            tokens: rate,
             last: now,
         }
     }
@@ -196,13 +240,71 @@ impl FrameGate {
     pub fn admit(&mut self, now: Instant) -> bool {
         let elapsed = now.saturating_duration_since(self.last).as_secs_f64();
         self.last = now;
-        self.tokens = (self.tokens + elapsed * FRAMES_PER_SEC).min(FRAMES_PER_SEC);
+        self.tokens = (self.tokens + elapsed * self.rate).min(self.rate);
         if self.tokens >= 1.0 {
             self.tokens -= 1.0;
             true
         } else {
             false
         }
+    }
+}
+
+/// The text an interim caption is translated from: at most [`MAX_PARTIAL_CHARS`] characters, the
+/// LAST ones when it is longer.
+pub fn clip_partial(text: &str) -> &str {
+    let n = text.chars().count();
+    if n <= MAX_PARTIAL_CHARS {
+        return text;
+    }
+    let skip = n - MAX_PARTIAL_CHARS;
+    let at = text.char_indices().nth(skip).map_or(0, |(i, _)| i);
+    &text[at..]
+}
+
+/// How many translation calls a conversation may make per minute, all its seats together.
+///
+/// A fixed one-minute window (so a burst straddling two windows can reach twice the ceiling for a
+/// moment; that is fine for a cost cap). Interim captions may use only [`PARTIAL_BUDGET_PERCENT`]
+/// of it, so however many of them there are, finals always have room.
+#[derive(Debug)]
+pub struct TranslationBudget {
+    cap: u32,
+    partial_cap: u32,
+    window_start: Option<Instant>,
+    used: u32,
+    partial_used: u32,
+}
+
+impl TranslationBudget {
+    pub fn new(calls_per_min: u32) -> Self {
+        Self {
+            cap: calls_per_min,
+            partial_cap: (calls_per_min * PARTIAL_BUDGET_PERCENT / 100).max(1),
+            window_start: None,
+            used: 0,
+            partial_used: 0,
+        }
+    }
+
+    /// Count one call and say whether it may be made.
+    pub fn allow(&mut self, now: Instant, is_final: bool) -> bool {
+        if self
+            .window_start
+            .is_none_or(|t| now.saturating_duration_since(t) >= BUDGET_WINDOW)
+        {
+            self.window_start = Some(now);
+            self.used = 0;
+            self.partial_used = 0;
+        }
+        if self.used >= self.cap || (!is_final && self.partial_used >= self.partial_cap) {
+            return false;
+        }
+        self.used += 1;
+        if !is_final {
+            self.partial_used += 1;
+        }
+        true
     }
 }
 
@@ -238,10 +340,10 @@ pub fn translation_unavailable() -> String {
 
 #[derive(Debug)]
 enum Kind {
-    /// Text a seat sent (accepted).
-    Sent { seat: usize },
-    /// Text spoken to the phones of a language.
-    Spoken { lang: String },
+    /// Text a seat sent (accepted), in the language it declared.
+    Sent { seat: usize, lang: String },
+    /// Text `from` said, spoken to the phones of a language.
+    Spoken { lang: String, from: usize },
 }
 
 #[derive(Debug)]
@@ -249,6 +351,13 @@ struct Entry {
     kind: Kind,
     at: Instant,
     norm: String,
+}
+
+/// Enough text for the guard to judge: [`TEXT_ECHO_MIN_TOKENS`] words, or one very long token
+/// (scripts written without spaces give a whole sentence as one token).
+fn judgeable(norm: &str) -> bool {
+    let words = norm.split_whitespace().count();
+    words >= TEXT_ECHO_MIN_TOKENS || (words == 1 && echo::enough(norm))
 }
 
 /// What the seats of one conversation recently sent and were told to speak. See the module
@@ -259,21 +368,43 @@ pub struct TextLog {
 }
 
 impl TextLog {
+    /// Whether the phones of `lang` are being played something `from` said (still inside
+    /// [`SPOKEN_WINDOW`]): then what those phones send may be their own TTS, not their speech.
+    fn hears_tts_of(&self, lang: &str, from: usize) -> bool {
+        self.entries.iter().any(
+            |e| matches!(&e.kind, Kind::Spoken { lang: l, from: f } if l == lang && *f == from),
+        )
+    }
+
     /// Judge a frame of `seat` (declared language `lang`): `true` is "echo, drop it". A frame that
     /// is not an echo is remembered, so what it said can make a later frame of another seat an
-    /// echo. Text of fewer than two words is never judged and never remembered.
+    /// echo. Text of fewer than [`TEXT_ECHO_MIN_TOKENS`] words is never judged and never
+    /// remembered, and nothing is dropped below [`TEXT_ECHO_MIN_SIM`].
     pub fn judge(&mut self, seat: usize, lang: &str, now: Instant, text: &str, sim: f64) -> bool {
         let norm = echo::normalize(text);
-        if !echo::enough(&norm) {
+        if !judgeable(&norm) {
             return false;
         }
+        let sim = sim.max(TEXT_ECHO_MIN_SIM);
         self.entries
             .retain(|e| now.saturating_duration_since(e.at) <= SPOKEN_WINDOW);
         let is_echo = self.entries.iter().any(|e| {
             let age = now.saturating_duration_since(e.at);
             let relevant = match &e.kind {
-                Kind::Sent { seat: s } => *s != seat && age <= ECHO_WINDOW,
-                Kind::Spoken { lang: l } => l == lang,
+                // Another seat said it first, recently, and that seat was not itself hearing this
+                // seat's words spoken (then ITS text is the echo), and this seat had not already
+                // said it before (then it was first).
+                Kind::Sent { seat: s, lang: l } => {
+                    *s != seat
+                        && age <= ECHO_WINDOW
+                        && !self.hears_tts_of(l, seat)
+                        && !self.entries.iter().any(|own| {
+                            matches!(own.kind, Kind::Sent { seat: o, .. } if o == seat)
+                                && own.at < e.at
+                                && echo::similarity(&own.norm, &e.norm) >= sim
+                        })
+                }
+                Kind::Spoken { lang: l, .. } => l == lang,
             };
             relevant && echo::similarity(&norm, &e.norm) >= sim
         });
@@ -285,25 +416,28 @@ impl TextLog {
             .entries
             .iter()
             .rev()
-            .find(|e| matches!(e.kind, Kind::Sent { seat: s } if s == seat))
+            .find(|e| matches!(e.kind, Kind::Sent { seat: s, .. } if s == seat))
             .is_some_and(|e| e.norm == norm);
         if !dup {
             let mine = self
                 .entries
                 .iter()
-                .filter(|e| matches!(e.kind, Kind::Sent { seat: s } if s == seat))
+                .filter(|e| matches!(e.kind, Kind::Sent { seat: s, .. } if s == seat))
                 .count();
             if mine >= LOG_PER_SEAT {
                 if let Some(i) = self
                     .entries
                     .iter()
-                    .position(|e| matches!(e.kind, Kind::Sent { seat: s } if s == seat))
+                    .position(|e| matches!(e.kind, Kind::Sent { seat: s, .. } if s == seat))
                 {
                     self.entries.remove(i);
                 }
             }
             self.entries.push(Entry {
-                kind: Kind::Sent { seat },
+                kind: Kind::Sent {
+                    seat,
+                    lang: lang.into(),
+                },
                 at: now,
                 norm,
             });
@@ -311,10 +445,11 @@ impl TextLog {
         false
     }
 
-    /// `text` was just sent to the phones whose language is `lang` to be spoken.
-    pub fn note_spoken(&mut self, lang: &str, now: Instant, text: &str) {
+    /// `text`, said by seat `from`, was just sent to the phones whose language is `lang` to be
+    /// spoken.
+    pub fn note_spoken(&mut self, from: usize, lang: &str, now: Instant, text: &str) {
         let norm = echo::normalize(text);
-        if !echo::enough(&norm) {
+        if !judgeable(&norm) {
             return;
         }
         self.entries
@@ -323,19 +458,22 @@ impl TextLog {
         let mine = self
             .entries
             .iter()
-            .filter(|e| matches!(&e.kind, Kind::Spoken { lang: l } if l == lang))
+            .filter(|e| matches!(&e.kind, Kind::Spoken { lang: l, .. } if l == lang))
             .count();
         if mine >= LOG_PER_SEAT {
             if let Some(i) = self
                 .entries
                 .iter()
-                .position(|e| matches!(&e.kind, Kind::Spoken { lang: l } if l == lang))
+                .position(|e| matches!(&e.kind, Kind::Spoken { lang: l, .. } if l == lang))
             {
                 self.entries.remove(i);
             }
         }
         self.entries.push(Entry {
-            kind: Kind::Spoken { lang: lang.into() },
+            kind: Kind::Spoken {
+                lang: lang.into(),
+                from,
+            },
             at: now,
             norm,
         });
@@ -343,6 +481,14 @@ impl TextLog {
 }
 
 // ---- translation and delivery ----------------------------------------------------------
+
+/// What one translation call came to.
+enum Got {
+    Text(String),
+    /// An interim caption that was not translated this time, on purpose.
+    Skipped,
+    Failed,
+}
 
 /// Everything one speaker's translation worker needs; built once per socket.
 pub struct Pipeline {
@@ -370,6 +516,10 @@ impl Pipeline {
     /// never builds a backlog of stale partials; finals are never skipped.
     pub async fn run(self, mut rx: mpsc::Receiver<Segment>) {
         let mut notice = Notifier::default();
+        // This seat's own limit on translation calls in flight, in front of the process-wide
+        // admission semaphore every tier shares.
+        let inflight = Arc::new(Semaphore::new(SEAT_INFLIGHT));
+        let mut round = 0usize;
         while let Some(mut seg) = rx.recv().await {
             while !seg.is_final {
                 match rx.try_recv() {
@@ -377,11 +527,18 @@ impl Pipeline {
                     Err(_) => break,
                 }
             }
-            self.process(seg, &mut notice).await;
+            self.process(seg, &mut notice, &inflight, round).await;
+            round = round.wrapping_add(1);
         }
     }
 
-    async fn process(&self, seg: Segment, notice: &mut Notifier) {
+    async fn process(
+        &self,
+        seg: Segment,
+        notice: &mut Notifier,
+        inflight: &Semaphore,
+        round: usize,
+    ) {
         let original = seg.text.trim().to_string();
         if original.is_empty() {
             return;
@@ -390,7 +547,13 @@ impl Pipeline {
         // Everybody else in the room, by distinct language. The speaker never appears: the room
         // excludes its own id, and every frame below is addressed by language except the speaker.
         let langs = self.rooms.get_room_languages(&self.room, &self.speaker_id);
-        let targets: Vec<&String> = langs.iter().filter(|l| **l != self.speaker_lang).collect();
+        let mut targets: Vec<&String> = langs.iter().filter(|l| **l != self.speaker_lang).collect();
+        // An interim caption that cannot have all its calls (see `translate_one`) loses the same
+        // language every time unless the order rotates.
+        if !seg.is_final && targets.len() > 1 {
+            let by = round % targets.len();
+            targets.rotate_left(by);
+        }
 
         // Listeners who share the speaker's language need no translation: the original is the
         // caption, and they hear the speaker themselves. Sent first, before any Groq round trip.
@@ -398,12 +561,12 @@ impl Pipeline {
             self.caption(&self.speaker_lang, &original, None, seg.is_final);
         }
 
-        let tr = &self.translator;
-        let (src, text) = (self.speaker_lang.as_str(), original.as_str());
+        let (this, text, is_final) = (self, original.as_str(), seg.is_final);
         let results = futures::future::join_all(targets.iter().map(|t| async move {
-            let r =
-                tokio::time::timeout(TRANSLATE_TIMEOUT, tr.translate_uncached(text, src, t)).await;
-            ((*t).clone(), r)
+            (
+                (*t).clone(),
+                this.translate_one(inflight, text, t, is_final).await,
+            )
         }))
         .await;
 
@@ -412,8 +575,7 @@ impl Pipeline {
         let mut failed = false;
         for (lang, r) in results {
             match r {
-                Ok(Ok(t)) if !t.trim().is_empty() => {
-                    let t = t.trim().to_string();
+                Got::Text(t) => {
                     self.caption(&lang, &t, Some(&original), seg.is_final);
                     if seg.is_final {
                         // What the phones of this language are about to speak, remembered so a
@@ -434,10 +596,13 @@ impl Pipeline {
                     }
                     translations.insert(lang, t);
                 }
-                // A timeout, a provider error or an empty answer: that language gets nothing for
-                // this segment (never the untranslated words, which would be captioned and
-                // SPOKEN in the wrong language).
-                _ => failed = true,
+                // An interim caption nobody was allowed to make this time: not an error, the next
+                // one replaces it.
+                Got::Skipped => {}
+                // A timeout, a provider error, an empty answer or the conversation's ceiling: that
+                // language gets nothing for this segment (never the untranslated words, which
+                // would be captioned and SPOKEN in the wrong language).
+                Got::Failed => failed = true,
             }
         }
         if failed && notice.due(Instant::now()) {
@@ -463,8 +628,44 @@ impl Pipeline {
         }
     }
 
+    /// One translation call, inside the seat's and the conversation's limits. A final waits for
+    /// its turn on the seat's limiter; an interim that cannot have one right now is dropped.
+    async fn translate_one(
+        &self,
+        inflight: &Semaphore,
+        text: &str,
+        target: &str,
+        is_final: bool,
+    ) -> Got {
+        let _permit = if is_final {
+            match inflight.acquire().await {
+                Ok(p) => p,
+                Err(_) => return Got::Failed,
+            }
+        } else {
+            match inflight.try_acquire() {
+                Ok(p) => p,
+                Err(_) => return Got::Skipped,
+            }
+        };
+        if !self.latency.allow_translation(Instant::now(), is_final) {
+            return if is_final { Got::Failed } else { Got::Skipped };
+        }
+        let r = tokio::time::timeout(
+            TRANSLATE_TIMEOUT,
+            self.translator
+                .translate_uncached(text, &self.speaker_lang, target),
+        )
+        .await;
+        match r {
+            Ok(Ok(t)) if !t.trim().is_empty() => Got::Text(t.trim().to_string()),
+            _ => Got::Failed,
+        }
+    }
+
     fn note_spoken(&self, lang: &str, text: &str) {
-        self.latency.note_spoken(lang, Instant::now(), text);
+        let seat = self.latency.seat_of(&self.speaker_id).unwrap_or(0);
+        self.latency.note_spoken(seat, lang, Instant::now(), text);
     }
 
     /// The caption frames the engine tiers send, for the listeners of `lang` (never the speaker).
@@ -693,7 +894,13 @@ mod tests {
         // Seat 0 (the real speaker) is ahead.
         assert!(!log.judge(0, "it", t, "ciao come stai oggi", SIM));
         // Seat 1's phone heard it, a moment later, partially and then whole: both dropped.
-        assert!(log.judge(1, "es", t + Duration::from_millis(300), "ciao come", SIM));
+        assert!(log.judge(
+            1,
+            "es",
+            t + Duration::from_millis(300),
+            "ciao come stai",
+            SIM
+        ));
         assert!(log.judge(
             1,
             "es",
@@ -747,12 +954,12 @@ mod tests {
         let t = t0();
         let mut log = TextLog::default();
         // The Spanish speaker's words were translated to Italian and spoken on the Italian phones.
-        log.note_spoken("it", t, "ciao come stai oggi amico");
-        // An Italian phone's STT hears its own TTS (well after ECHO_WINDOW, within SPOKEN_WINDOW).
+        log.note_spoken(1, "it", t, "ciao come stai oggi amico");
+        // An Italian phone's STT hears its own TTS (after ECHO_WINDOW, within SPOKEN_WINDOW).
         assert!(log.judge(
             0,
             "it",
-            t + Duration::from_secs(6),
+            t + Duration::from_secs(3),
             "ciao come stai oggi amico",
             SIM
         ));
@@ -760,11 +967,13 @@ mod tests {
         assert!(!log.judge(
             1,
             "es",
-            t + Duration::from_secs(6),
+            t + Duration::from_secs(3),
             "ciao come stai oggi amico",
             SIM
         ));
         // And it is forgotten after the spoken window.
+        let mut log = TextLog::default();
+        log.note_spoken(1, "it", t, "ciao come stai oggi amico");
         assert!(!log.judge(
             0,
             "it",
@@ -787,11 +996,250 @@ mod tests {
                 SIM,
             );
             log.note_spoken(
+                1,
                 "it",
                 t + Duration::from_millis(i),
                 &format!("detto{i} ancora{i}"),
             );
         }
         assert!(log.entries.len() <= 2 * LOG_PER_SEAT);
+    }
+
+    #[test]
+    fn a_short_acknowledgement_is_never_taken_for_an_echo() {
+        let t = t0();
+        for (a, b) in [
+            ("ok perfecto", "ok perfecto"),
+            ("vale gracias", "Vale, gracias!"),
+            ("si certo", "sì certo"),
+            ("ok", "ok"),
+        ] {
+            // Said first by one seat, and again by the other right after.
+            let mut log = TextLog::default();
+            assert!(!log.judge(0, "it", t, a, SIM), "{a}");
+            assert!(
+                !log.judge(1, "es", t + Duration::from_millis(200), b, SIM),
+                "{b}"
+            );
+            // Spoken to its own language a moment ago.
+            let mut log = TextLog::default();
+            log.note_spoken(0, "es", t, a);
+            assert!(
+                !log.judge(1, "es", t + Duration::from_millis(200), b, SIM),
+                "{b}"
+            );
+        }
+        // Three words is the least that is judged.
+        let mut log = TextLog::default();
+        assert!(!log.judge(0, "it", t, "va bene grazie", SIM));
+        assert!(log.judge(
+            1,
+            "es",
+            t + Duration::from_millis(200),
+            "va bene grazie",
+            SIM
+        ));
+    }
+
+    #[test]
+    fn a_lookalike_below_the_floor_is_not_an_echo_whatever_the_knob_says() {
+        let t = t0();
+        let mut log = TextLog::default();
+        assert!(!log.judge(0, "it", t, "ciao come stai oggi amico", 0.3));
+        // Four of its five words: 0.8 of it, under the 0.85 floor even with the knob at 0.3.
+        assert!(!log.judge(
+            1,
+            "es",
+            t + Duration::from_millis(200),
+            "ciao come va oggi amico",
+            0.3
+        ));
+        assert!(echo::similarity("ciao come va oggi amico", "ciao come stai oggi amico") < 0.85);
+    }
+
+    #[test]
+    fn the_windows_are_a_few_seconds() {
+        let t = t0();
+        // What another seat sent: dropped just inside ECHO_WINDOW, a new utterance just after.
+        let mut log = TextLog::default();
+        assert!(!log.judge(0, "it", t, "ciao come stai oggi", SIM));
+        assert!(log.judge(
+            1,
+            "es",
+            t + ECHO_WINDOW - Duration::from_millis(1),
+            "ciao come stai oggi",
+            SIM
+        ));
+        let mut log = TextLog::default();
+        assert!(!log.judge(0, "it", t, "ciao come stai oggi", SIM));
+        assert!(!log.judge(
+            1,
+            "es",
+            t + ECHO_WINDOW + Duration::from_millis(1),
+            "ciao come stai oggi",
+            SIM
+        ));
+        // What was spoken to a language: same for SPOKEN_WINDOW.
+        let mut log = TextLog::default();
+        log.note_spoken(1, "it", t, "ciao come stai oggi");
+        assert!(log.judge(
+            0,
+            "it",
+            t + SPOKEN_WINDOW - Duration::from_millis(1),
+            "ciao come stai oggi",
+            SIM
+        ));
+        let mut log = TextLog::default();
+        log.note_spoken(1, "it", t, "ciao come stai oggi");
+        assert!(!log.judge(
+            0,
+            "it",
+            t + SPOKEN_WINDOW + Duration::from_millis(1),
+            "ciao come stai oggi",
+            SIM
+        ));
+        assert_eq!(ECHO_WINDOW, Duration::from_millis(2500));
+        assert_eq!(SPOKEN_WINDOW, Duration::from_secs(4));
+    }
+
+    #[test]
+    fn a_seat_being_played_my_words_is_the_echo_not_me() {
+        let t = t0();
+        // The Spanish seat 0's phone is being played what the Italian seat 1 just said, and its own
+        // STT sends those words. Seat 1 then says them for real: seat 1 is not the echo.
+        let mut log = TextLog::default();
+        log.note_spoken(1, "es", t, "vale lo hago ahora mismo");
+        assert!(!log.judge(0, "xx", t + Duration::from_millis(100), "zzz yyy www", SIM));
+        let mut log = TextLog::default();
+        // Seat 0 (es) sent the text; seat 1 said it before, and seat 0 is hearing it spoken.
+        assert!(!log.judge(0, "es", t, "vale lo hago ahora mismo", SIM));
+        log.note_spoken(
+            1,
+            "es",
+            t + Duration::from_millis(100),
+            "vale lo hago ahora mismo",
+        );
+        assert!(
+            !log.judge(
+                1,
+                "it",
+                t + Duration::from_millis(500),
+                "vale lo hago ahora mismo",
+                SIM
+            ),
+            "seat 0 was hearing seat 1: its text is the echo, seat 1 is the speaker"
+        );
+        // Without that, the same order is the ordinary "seat 0 said it first" case.
+        let mut log = TextLog::default();
+        assert!(!log.judge(0, "es", t, "vale lo hago ahora mismo", SIM));
+        assert!(log.judge(
+            1,
+            "it",
+            t + Duration::from_millis(500),
+            "vale lo hago ahora mismo",
+            SIM
+        ));
+        // Hearing somebody else's words says nothing about seat 1.
+        let mut log = TextLog::default();
+        assert!(!log.judge(0, "es", t, "vale lo hago ahora mismo", SIM));
+        log.note_spoken(
+            2,
+            "es",
+            t + Duration::from_millis(100),
+            "otra cosa muy distinta ahora",
+        );
+        assert!(log.judge(
+            1,
+            "it",
+            t + Duration::from_millis(500),
+            "vale lo hago ahora mismo",
+            SIM
+        ));
+    }
+
+    #[test]
+    fn a_seat_that_said_it_first_is_not_its_own_echo() {
+        let t = t0();
+        let mut log = TextLog::default();
+        // Seat 1 starts the sentence; seat 0 says the same thing later (outside the window, so it
+        // is accepted); then seat 1 finishes it. Seat 1 was first.
+        assert!(!log.judge(1, "es", t, "ciao come stai", SIM));
+        assert!(!log.judge(
+            0,
+            "it",
+            t + Duration::from_secs(3),
+            "ciao come stai oggi",
+            SIM
+        ));
+        assert!(!log.judge(
+            1,
+            "es",
+            t + Duration::from_millis(3300),
+            "ciao come stai oggi",
+            SIM
+        ));
+        // A seat that had NOT said it is still judged.
+        let mut log = TextLog::default();
+        assert!(!log.judge(0, "it", t, "ciao come stai oggi", SIM));
+        assert!(log.judge(
+            1,
+            "es",
+            t + Duration::from_millis(300),
+            "ciao come stai",
+            SIM
+        ));
+    }
+
+    #[test]
+    fn a_long_token_of_a_script_without_spaces_is_still_judged() {
+        let t = t0();
+        let mut log = TextLog::default();
+        let line = "今日はとても良い天気ですね本当に";
+        assert!(!log.judge(0, "ja", t, line, SIM));
+        assert!(log.judge(1, "zh", t + Duration::from_millis(200), line, SIM));
+        // A short one is not.
+        let mut log = TextLog::default();
+        assert!(!log.judge(0, "ja", t, "ありがとう", SIM));
+        assert!(!log.judge(1, "zh", t + Duration::from_millis(200), "ありがとう", SIM));
+    }
+
+    #[test]
+    fn interim_captions_have_their_own_smaller_gate() {
+        let t = t0();
+        let mut g = FrameGate::with_rate(PARTIALS_PER_SEC, t);
+        assert_eq!((0..10).filter(|_| g.admit(t)).count(), 2, "a burst of two");
+        assert!(!g.admit(t + Duration::from_millis(400)));
+        assert!(
+            g.admit(t + Duration::from_millis(500)),
+            "2 a second refills"
+        );
+    }
+
+    #[test]
+    fn an_interim_is_cut_to_its_last_four_hundred_characters() {
+        let short = "a".repeat(MAX_PARTIAL_CHARS);
+        assert_eq!(clip_partial(&short), short);
+        let long = format!("{}{}", "x".repeat(600), "fine");
+        let clipped = clip_partial(&long);
+        assert_eq!(clipped.chars().count(), MAX_PARTIAL_CHARS);
+        assert!(clipped.ends_with("fine"));
+        // Never in the middle of a character.
+        let wide = "é".repeat(MAX_PARTIAL_CHARS + 7);
+        assert_eq!(clip_partial(&wide).chars().count(), MAX_PARTIAL_CHARS);
+        assert_eq!(clip_partial(""), "");
+    }
+
+    #[test]
+    fn the_call_ceiling_reserves_room_for_finals_and_resets_each_minute() {
+        let t = t0();
+        let mut b = TranslationBudget::new(100);
+        // Interim captions get 60 of the 100.
+        assert_eq!((0..200).filter(|_| b.allow(t, false)).count(), 60);
+        // The finals still have the other 40, and no more.
+        assert_eq!((0..200).filter(|_| b.allow(t, true)).count(), 40);
+        assert!(!b.allow(t + Duration::from_secs(59), true));
+        // A new minute starts again.
+        assert!(b.allow(t + Duration::from_secs(60), false));
+        assert!(b.allow(t + Duration::from_secs(60), true));
     }
 }

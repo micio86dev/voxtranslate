@@ -51,6 +51,8 @@ pub struct SessionLatency {
     text_mode: std::sync::atomic::AtomicBool,
     /// What each seat recently sent as text (Enhanced), for the text-level echo guard.
     text_log: Mutex<super::enhanced::TextLog>,
+    /// How many translation calls the conversation's Enhanced seats may still make this minute.
+    translation_budget: Mutex<super::enhanced::TranslationBudget>,
 }
 
 /// A microphone level nobody refreshed for this long is silence, not "the last thing it heard".
@@ -64,7 +66,7 @@ const ECHO_REPORT_EVERY: Duration = Duration::from_secs(10);
 const MAX_PLAUSIBLE_LATENCY: Duration = Duration::from_secs(30);
 
 impl SessionLatency {
-    fn new() -> Self {
+    fn with_calls_per_min(calls_per_min: u32) -> Self {
         Self {
             epoch: tokio::time::Instant::now(),
             seats: std::array::from_fn(|_| OnceLock::new()),
@@ -75,13 +77,14 @@ impl SessionLatency {
             echo_report_at: AtomicU64::new(0),
             text_mode: std::sync::atomic::AtomicBool::new(false),
             text_log: Mutex::new(super::enhanced::TextLog::default()),
+            translation_budget: Mutex::new(super::enhanced::TranslationBudget::new(calls_per_min)),
         }
     }
 
     /// A probe set with no conversation behind it, for tests in other modules.
     #[cfg(test)]
     pub(crate) fn new_for_test() -> Self {
-        Self::new()
+        Self::with_calls_per_min(600)
     }
 
     /// Mark the conversation as running (or no longer running) on Enhanced text.
@@ -111,12 +114,23 @@ impl SessionLatency {
             .judge(seat % MAX_SEATS, lang, now, text, sim)
     }
 
-    /// `text` was just sent to the phones of language `lang` to be spoken by their TTS.
-    pub fn note_spoken(&self, lang: &str, now: tokio::time::Instant, text: &str) {
+    /// `text`, said by `from_seat`, was just sent to the phones of language `lang` to be spoken by
+    /// their TTS.
+    pub fn note_spoken(&self, from_seat: usize, lang: &str, now: tokio::time::Instant, text: &str) {
         self.text_log
             .lock()
             .unwrap_or_else(|p| p.into_inner())
-            .note_spoken(lang, now, text);
+            .note_spoken(from_seat % MAX_SEATS, lang, now, text);
+    }
+
+    /// May the conversation make one more translation call right now? Counts it when it does.
+    /// Interim captions are only allowed a share of the minute, so a storm of them can never
+    /// starve the finals.
+    pub fn allow_translation(&self, now: tokio::time::Instant, is_final: bool) -> bool {
+        self.translation_budget
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .allow(now, is_final)
     }
 
     /// The seat of `peer`: the slot it already holds, else the first free one. Called once per
@@ -277,6 +291,9 @@ pub struct LiveState {
     muted: Mutex<HashSet<(Uuid, Uuid)>>,
     /// Uncharged org cost per seat; see [`Carry`].
     owed: Mutex<HashMap<(Uuid, Uuid), Carry>>,
+    /// When each seat last took an opening charge, as `(session, peer)`; see
+    /// [`LiveState::claim_opening`].
+    opened: Mutex<HashMap<(Uuid, Uuid), Instant>>,
     /// Desk-scan sessions per `(desk, client address)`, with when each stops being worth
     /// counting. See [`LiveState::desk_scans_from`].
     desk_scans: Mutex<HashMap<(Uuid, String), Vec<DeskScan>>>,
@@ -308,6 +325,7 @@ impl LiveState {
             owners: Mutex::new(HashMap::new()),
             muted: Mutex::new(HashSet::new()),
             owed: Mutex::new(HashMap::new()),
+            opened: Mutex::new(HashMap::new()),
             desk_scans: Mutex::new(HashMap::new()),
             maintenance: Mutex::new(None),
             latency: Mutex::new(HashMap::new()),
@@ -362,7 +380,9 @@ impl LiveState {
         if map.len() >= 64 {
             map.retain(|_, w| w.strong_count() > 0);
         }
-        let fresh = Arc::new(SessionLatency::new());
+        let fresh = Arc::new(SessionLatency::with_calls_per_min(
+            self.config.enhanced_calls_per_min,
+        ));
         map.insert(session, Arc::downgrade(&fresh));
         fresh
     }
@@ -406,6 +426,48 @@ impl LiveState {
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .retain(|(session, _)| active.contains(session));
+    }
+
+    /// May this seat take an opening charge now? At most ONE per seat per `interval`.
+    ///
+    /// Every Start used to pay an opening charge under a key of its own, so a phone that Starts and
+    /// Stops in a loop paid for each pair (about 40 a second) while translating nothing: a guest
+    /// could drain the host's balance. Now a Start within `interval` of that seat's previous
+    /// opening charge opens its meter WITHOUT one; the ordinary per-interval ticks still bill the
+    /// audio or text it really sends. A Start/Stop shorter than an interval is still not free: the
+    /// first one pays. The map holds only seats that opened within the last interval (older
+    /// entries are dropped as the map grows, and with their session), so it cannot grow without
+    /// bound.
+    pub fn claim_opening(&self, session: Uuid, peer: Uuid, interval: Duration) -> bool {
+        self.claim_opening_at(Instant::now(), session, peer, interval)
+    }
+
+    fn claim_opening_at(
+        &self,
+        now: Instant,
+        session: Uuid,
+        peer: Uuid,
+        interval: Duration,
+    ) -> bool {
+        let mut map = self.opened.lock().unwrap_or_else(|p| p.into_inner());
+        if map.len() >= 64 {
+            map.retain(|_, at| now.saturating_duration_since(*at) < interval);
+        }
+        match map.get(&(session, peer)) {
+            Some(at) if now.saturating_duration_since(*at) < interval => false,
+            _ => {
+                map.insert((session, peer), now);
+                true
+            }
+        }
+    }
+
+    /// Forget the opening-charge stamps of sessions that are no longer active.
+    pub fn retain_openings_for(&self, active: &[Uuid]) {
+        self.opened
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .retain(|(session, _), _| active.contains(session));
     }
 
     /// Add `amount` USD of cost to this seat's carry and return the whole credits now due (0
@@ -564,7 +626,7 @@ mod tests {
 
     #[test]
     fn a_level_rises_fast_when_speech_starts_and_falls_slowly() {
-        let l = SessionLatency::new();
+        let l = SessionLatency::new_for_test();
         let t0 = l.epoch;
         // Three 100 ms frames of speech after silence already read as most of the real level:
         // a replier who has just started must not look quiet next to a speaker who stopped.
@@ -584,7 +646,7 @@ mod tests {
 
     #[test]
     fn a_microphone_level_smooths_decays_and_belongs_to_one_seat() {
-        let l = SessionLatency::new();
+        let l = SessionLatency::new_for_test();
         let t0 = l.epoch;
         assert_eq!((l.mic_level(0, t0), l.mic_last_voiced(0)), (0, None));
         for i in 0..60u64 {
@@ -618,7 +680,7 @@ mod tests {
 
     #[test]
     fn echo_reports_are_limited_per_conversation_not_per_seat() {
-        let l = SessionLatency::new();
+        let l = SessionLatency::new_for_test();
         let t0 = l.epoch;
         assert!(l.allow_echo_report(at(t0, 100)));
         assert!(
@@ -631,7 +693,7 @@ mod tests {
 
     #[test]
     fn latency_is_observed_once_per_utterance_and_goes_to_the_other_seat() {
-        let l = SessionLatency::new();
+        let l = SessionLatency::new_for_test();
         let t0 = l.epoch;
         // Nothing was said: nothing to measure.
         assert_eq!(l.audio_delivered(1, 0, at(t0, 50)), None);
@@ -648,7 +710,7 @@ mod tests {
 
     #[test]
     fn a_seat_never_measures_its_own_speech() {
-        let l = SessionLatency::new();
+        let l = SessionLatency::new_for_test();
         let t0 = l.epoch;
         l.speech_started(0, at(t0, 10));
         // Audio delivered to the speaker itself (it would be an echo) is not a sample.
@@ -659,7 +721,7 @@ mod tests {
 
     #[test]
     fn both_directions_are_measured_independently() {
-        let l = SessionLatency::new();
+        let l = SessionLatency::new_for_test();
         let t0 = l.epoch;
         l.speech_started(0, at(t0, 0));
         l.speech_started(1, at(t0, 50));
@@ -675,7 +737,7 @@ mod tests {
 
     #[test]
     fn a_new_utterance_replaces_a_stale_stamp_and_an_old_one_is_dropped() {
-        let l = SessionLatency::new();
+        let l = SessionLatency::new_for_test();
         let t0 = l.epoch;
         l.speech_started(0, at(t0, 0));
         // Never translated; the speaker starts again later and that is what the audio answers.
@@ -691,7 +753,7 @@ mod tests {
 
     #[test]
     fn each_peer_gets_a_seat_of_its_own_and_keeps_it_across_a_reconnect() {
-        let l = SessionLatency::new();
+        let l = SessionLatency::new_for_test();
         let ids = ["host", "g1", "g2", "g3"];
         let seats: Vec<usize> = ids.iter().map(|p| l.seat_for(p)).collect();
         assert_eq!(seats, vec![0, 1, 2, 3], "four peers, four distinct seats");
@@ -703,7 +765,7 @@ mod tests {
 
     #[test]
     fn a_microphone_level_belongs_to_one_of_four_seats() {
-        let l = SessionLatency::new();
+        let l = SessionLatency::new_for_test();
         let t0 = l.epoch;
         for seat in 0..MAX_SEATS {
             l.mic_frame(seat, at(t0, 0), 100 * (seat as u32 + 1), true);
@@ -719,7 +781,7 @@ mod tests {
 
     #[test]
     fn with_three_listeners_one_utterance_is_observed_once_and_for_its_own_speaker() {
-        let l = SessionLatency::new();
+        let l = SessionLatency::new_for_test();
         let t0 = l.epoch;
         l.speech_started(1, at(t0, 100));
         // Seat 2's utterance is a different stream: its audio must not consume seat 1's stamp.
@@ -751,6 +813,52 @@ mod tests {
         }
         let map = state.latency.lock().unwrap();
         assert!(map.len() < 70, "dead entries are pruned, got {}", map.len());
+    }
+
+    #[test]
+    fn a_seat_takes_one_opening_charge_per_interval() {
+        let state = LiveState::new(LiveConfig::disabled());
+        let t0 = Instant::now();
+        let (s, p) = (Uuid::new_v4(), Uuid::new_v4());
+        let iv = Duration::from_secs(5);
+        assert!(state.claim_opening_at(t0, s, p, iv));
+        // A Start/Stop loop: every further Start inside the interval opens for free.
+        for ms in [1u64, 6, 50, 1000, 4999] {
+            assert!(
+                !state.claim_opening_at(t0 + Duration::from_millis(ms), s, p, iv),
+                "{ms}"
+            );
+        }
+        // The next honest Start, a whole interval later, pays again, and the interval restarts.
+        assert!(state.claim_opening_at(t0 + iv, s, p, iv));
+        assert!(!state.claim_opening_at(t0 + iv + Duration::from_secs(1), s, p, iv));
+        // Another seat, and another conversation, have their own.
+        assert!(state.claim_opening_at(t0 + iv, s, Uuid::new_v4(), iv));
+        assert!(state.claim_opening_at(t0 + iv, Uuid::new_v4(), p, iv));
+    }
+
+    #[test]
+    fn opening_stamps_are_pruned_and_forgotten_with_their_session() {
+        let state = LiveState::new(LiveConfig::disabled());
+        let t0 = Instant::now();
+        let iv = Duration::from_secs(5);
+        let sessions: Vec<Uuid> = (0..200).map(|_| Uuid::new_v4()).collect();
+        for s in &sessions {
+            state.claim_opening_at(t0, *s, Uuid::new_v4(), iv);
+        }
+        // Once the map is big, a later claim drops every stamp older than the interval.
+        state.claim_opening_at(
+            t0 + Duration::from_secs(60),
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            iv,
+        );
+        assert_eq!(state.opened.lock().unwrap().len(), 1);
+        // Ended sessions are forgotten by the sweeper's pass.
+        let keep = Uuid::new_v4();
+        state.claim_opening_at(t0, keep, Uuid::new_v4(), iv);
+        state.retain_openings_for(&[keep]);
+        assert_eq!(state.opened.lock().unwrap().len(), 1);
     }
 
     fn cents(n: i64, scale: u32) -> Decimal {
