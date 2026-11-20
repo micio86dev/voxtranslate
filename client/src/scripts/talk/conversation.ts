@@ -213,8 +213,15 @@ export class TalkConversation {
   constructor(private readonly opts: ConversationOptions) {
     this.now = opts.now ?? (() => Date.now());
     this.random = opts.random ?? Math.random;
-    this.setTimeoutImpl = opts.setTimeoutImpl ?? setTimeout;
-    this.clearTimeoutImpl = opts.clearTimeoutImpl ?? clearTimeout;
+    // Wrapped, never stored bare: a browser throws "Illegal invocation" when `setTimeout` is
+    // called with the instance as its receiver (`this.setTimeoutImpl(...)`), which broke the
+    // reconnect scheduling on the first dropped socket.
+    this.setTimeoutImpl =
+      opts.setTimeoutImpl ??
+      (((fn: () => void, ms?: number) => globalThis.setTimeout(fn, ms)) as unknown as typeof setTimeout);
+    this.clearTimeoutImpl =
+      opts.clearTimeoutImpl ??
+      (((id?: ReturnType<typeof setTimeout>) => globalThis.clearTimeout(id)) as unknown as typeof clearTimeout);
     this.playback = opts.playback ?? pcmPlayback;
     this.guard = new SelfAudioGuard({
       setGated: (gated) => {

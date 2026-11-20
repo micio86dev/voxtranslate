@@ -10,7 +10,8 @@
     "preview": "astro preview --host",
     "check": "astro check",
     "test:unit": "vitest run --coverage",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:e2e:live": "playwright test -c playwright.live.config.ts"
   },
   "dependencies": {
     "@jitsi/rnnoise-wasm": "^0.2.1",

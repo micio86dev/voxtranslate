@@ -32,6 +32,7 @@ pub mod google_oauth;
 pub mod groq;
 pub mod invite;
 pub mod invoices;
+pub mod live;
 pub mod location;
 pub mod log_shipping;
 pub mod meetings;
@@ -264,6 +265,8 @@ pub struct AppState {
     /// money — is in Postgres. See `voip::session` for the one coupling this does create.
     pub voip_calls: Arc<crate::voip::session::LiveCalls>,
     pub voip_tickets: Arc<crate::voip::token::TicketRegistry>,
+    /// Live Connect (spec 0121): configuration now, the presence registry with the socket.
+    pub live: Arc<crate::live::LiveState>,
 }
 
 /// Read a positive `u32` from `var`, falling back to `default`.
@@ -521,6 +524,7 @@ impl AppState {
             telephony,
             voip_calls: Arc::new(crate::voip::session::LiveCalls::new()),
             voip_tickets: Arc::new(crate::voip::token::TicketRegistry::new()),
+            live: Arc::new(crate::live::LiveState::from_env()),
         }
     }
 
@@ -835,6 +839,16 @@ pub fn app(state: AppState) -> Router {
         )
         // VoxTranslate for Business — org workspace API (spec 0106).
         .merge(business::routes::routes())
+        // Erasing what Live Connect stored is available even when the feature is switched off.
+        .merge(live::erase::routes())
+        // Platform-operator tools for Live Connect (Directus Flows, shared admin secret).
+        .merge(live::admin::routes())
+        // Live Connect: absent unless enabled and correctly configured (a real kill switch).
+        .merge(if state.live.enabled() {
+            live::routes::routes()
+        } else {
+            Router::new()
+        })
         // Registered only when VoIP is enabled AND a provider was built, so turning the
         // feature off is a real kill switch: the routes are absent and a request 404s.
         .merge(if state.telephony.is_some() {
@@ -1111,6 +1125,11 @@ pub async fn serve() {
         }
     });
 
+    // Live Connect: expire unjoined invitations and close conversations both phones left.
+    if state.live.enabled() {
+        tokio::spawn(live::sweeper::run(state.clone()));
+    }
+
     // Analytics roll-up (#241): periodically fold raw events into the aggregate
     // tables Directus dashboards read. Skipped in guest-only mode (no DB).
     if let Some(pool) = state.pool.clone() {
@@ -1268,6 +1287,10 @@ async fn ws_handler(
 ) -> Response {
     if params.room.trim().is_empty() || params.lang.trim().is_empty() {
         return (StatusCode::BAD_REQUEST, "missing room or lang").into_response();
+    }
+    // A Live Connect room is joined through `/ws/live` with a participant token, never by name.
+    if live::is_live_room(&params.room) {
+        return (StatusCode::FORBIDDEN, "reserved room").into_response();
     }
     // Validate + normalize the language BEFORE it is interpolated into the Deepgram
     // streaming URL (M4). Without this a peer could smuggle extra query params via

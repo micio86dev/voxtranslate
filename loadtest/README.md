@@ -174,6 +174,75 @@ leaves are the evidence to inspect afterwards (see the script's `teardown`).
 > **Never state "this deployment supports N calls" without a recorded run behind it.**
 > That sentence is a commitment, and the numbers here are the only thing that can back it.
 
+## Live Connect — two-phone translated conversations (spec 0121)
+
+`live-connect.js` opens N conversations of two phones each on `/ws/live`, every phone sending
+a 100 ms PCM16 24 kHz frame every 100 ms, and reports connect time, time to the first
+translated audio, error frames, unexpected closes and `live_busy` refusals. It **creates
+sessions and bills their owners**, so it refuses a non-loopback `BASE_URL` and must only be
+pointed at a local server whose upstream is the mock — never at real Qwen credentials, never at
+staging or production.
+
+```bash
+# 1. The local stack: the real server (debug build, local Postgres only) + a Node mock of the
+#    Qwen realtime upstream. Needs `docker compose up -d --wait postgres` (pgvector, :55432),
+#    `psql` on PATH and a built server (`cd server && cargo build`, or add --build).
+node client/e2e/support/live-server.mjs            # server :3101, mock :3102; Ctrl-C stops both
+
+# 2. Accounts. One owner may hold 3 open sessions, so N sessions need ceil(N/3) accounts.
+JWTS=$(node client/e2e/support/live-seed.mjs users 6 50)     # 6 accounts, $50 each
+
+# 3. Run: 12 conversations = 24 sockets for 60 s.
+k6 run -e BASE_URL=http://127.0.0.1:3101 -e JWTS="$JWTS" -e SESSIONS=12 -e HOLD_SEC=60 loadtest/live-connect.js
+```
+
+`live-seed.mjs` writes users straight into the local database and signs HS256 tokens with the
+stack's `JWT_SECRET` (the same thing the e2e does, see `client/e2e/support/live-seed.mjs`). It
+refuses any database that is not on loopback.
+
+| Metric | Meaning |
+|---|---|
+| `ws_connecting`, `live_ws_connect_ms` | upgrade time |
+| `live_first_translated_ms` | first frame sent to first `translated_audio` received |
+| `live_translated_audio_frames` | audio chunks delivered; the threshold fails the run if none arrive |
+| `live_sockets_without_audio` | sockets that never heard the other side: a silent direction (see capacity note below) |
+| `live_busy_refusals` | sessions refused with `live_busy` at create/join: the capacity gate working, **not** a failure |
+| `live_session_create_failed{code}` | any other refusal (`too_many_sessions` means you need more accounts) |
+| `live_error_frames{code}` | `error` frames mid-conversation (`live_busy`, `engine_unavailable`, ...); the threshold fails on any |
+| `live_unexpected_close` | sockets that ended before `HOLD_SEC` for a reason the script did not cause |
+| `live_session_ended_frames` | `session_state` frames: the server closed the conversation |
+
+**Capacity facts to compare the run against** (from the audit; `docs/live-connect.md`,
+"Operations"): the Standard engine is capped at **32 upstream sessions per process**
+(`QWEN_REALTIME_MAX_SESSIONS`); one conversation needs two (one per speaking direction), so about
+**16 simultaneous conversations** fit. The `live_busy` gate refuses a new session at create/join
+when fewer than two upstream sessions are free, but this script creates every session *before* any
+socket speaks, so the gate sees an idle engine and does not trip; past ~16 conversations the
+expected symptom is `live_sockets_without_audio` (a direction that is never translated), not
+`live_busy_refusals`. **That expectation has not been run**: the only recorded run is the 6-socket
+smoke below. These are design limits, not measured throughput: record a run before quoting a number.
+
+What the client cannot see, read from the server afterwards:
+
+```bash
+# the server-side speech -> translated-audio histogram (teardown also prints it)
+curl -s http://127.0.0.1:3101/metrics | grep voxtranslate_live_translation_ms_
+
+# outbound-queue overflows (a slow consumer dropped), idle timeouts, capacity refusals
+psql "$LIVE_E2E_DATABASE_URL" -c "SELECT kind, count(*) FROM live_session_events
+  WHERE ts > now() - interval '10 minutes' GROUP BY kind ORDER BY 2 DESC"
+```
+
+With the mock upstream the numbers measure **our** socket handling, room fan-out, metering and
+database writes. They say nothing about the provider's latency or capacity, which is the larger
+part of what a user feels: that needs a real device run (`docs/live-connect-device-matrix.md`).
+
+**Smoke run, 2026-11-19** (local debug build, mock upstream, 3 conversations = 6 sockets, 20 s):
+upgrade p95 3.7 ms, first translated audio 102-104 ms after the first frame, 18 translated
+chunks delivered, 1199 frames sent, 0 error frames, 0 unexpected closes, 0 refusals. Server-side
+histogram: 6 observations, 12 ms in total. A debug build on one laptop against an instant mock is
+a smoke test, not a capacity figure.
+
 ## Notes
 
 - Run against a **local** instance (or a dedicated staging box) — never prod: the

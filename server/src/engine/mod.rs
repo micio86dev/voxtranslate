@@ -244,6 +244,16 @@ pub trait TranslationEngine: Send + Sync {
     /// Open a speaking session for `ctx`. See [`SessionOutcome`] — `AtCapacity`
     /// tells the caller to retry on the default engine (never block the speaker).
     async fn start_session(&self, ctx: SpeakerCtx, deps: SessionDeps) -> SessionOutcome;
+
+    /// How many more upstream sessions this engine can open right now, or `None` when it
+    /// does not meter its own capacity.
+    ///
+    /// A snapshot, not a reservation: it lets a caller refuse work up front instead of
+    /// discovering at the first word that a direction silently has no session (Standard
+    /// never reports `AtCapacity`; it skips the languages it cannot start).
+    fn free_capacity(&self) -> Option<usize> {
+        None
+    }
 }
 
 /// Ordered set of available engines, keyed by id, with a guaranteed default.

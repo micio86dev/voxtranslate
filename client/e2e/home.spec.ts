@@ -37,6 +37,12 @@ test('home: i18n switching, hero CTAs, PWA tags', async ({ browser }) => {
   // Hero: discovery routes to /world. (Public-room discovery itself is covered by
   // world.spec.ts, where it now lives.)
   await expect(page.locator('#hero-world')).toHaveAttribute('href', '/world');
+  // Live Connect (spec 0121) is a SEPARATE entry; "Talk to anyone" keeps its own, unchanged.
+  await expect(page.locator('#hero-live')).toHaveAttribute('href', '/live');
+  await expect(page.locator('#hero-talk')).toHaveAttribute('href', '/talk');
+  await expect(page.locator('.hero-cta-btn[href="/live"]')).toHaveCount(1);
+  await expect(page.locator('.hero-cta-btn[href="/talk"]')).toHaveCount(1);
+  await expect(page.locator('.acct-item[href="/live"]')).toHaveCount(1);
   await expect(page.locator('h1.hero-title')).toBeVisible();
 
   // Guests see it on purpose: browsing real conversations is what makes someone sign

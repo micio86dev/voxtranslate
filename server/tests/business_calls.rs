@@ -171,6 +171,9 @@ async fn room_binding_is_inherited_by_new_call() {
         return;
     };
     let http = Client::new();
+    // A fresh room every run: bindings persist in the database, and a binding held by another
+    // tenant (a previous run's org) is — correctly — not overwritable.
+    let room = format!("inherit-{}", Uuid::new_v4().simple());
     let (owner, jwt) = user(&srv).await;
     let org = make_org(&srv, owner).await;
     let project: Uuid = sqlx::query_scalar(
@@ -186,7 +189,7 @@ async fn room_binding_is_inherited_by_new_call() {
     let other_owner = user(&srv).await.0;
     let other_org = make_org(&srv, other_owner).await;
     let bad = http
-        .patch(format!("{}/api/rooms/inherit-room/business", base(&srv)))
+        .patch(format!("{}/api/rooms/{room}/business", base(&srv)))
         .bearer_auth(&jwt)
         .json(&json!({ "org_id": org, "project_id": Uuid::new_v4() }))
         .send()
@@ -197,7 +200,7 @@ async fn room_binding_is_inherited_by_new_call() {
 
     // Cloud recording requires an ACTIVE subscription — rejected without one.
     let no_sub = http
-        .patch(format!("{}/api/rooms/inherit-room/business", base(&srv)))
+        .patch(format!("{}/api/rooms/{room}/business", base(&srv)))
         .bearer_auth(&jwt)
         .json(&json!({ "org_id": org, "project_id": project, "cloud_recording_enabled": true }))
         .send()
@@ -218,7 +221,7 @@ async fn room_binding_is_inherited_by_new_call() {
 
     // Bind the room to org + project with recording on.
     let bind = http
-        .patch(format!("{}/api/rooms/inherit-room/business", base(&srv)))
+        .patch(format!("{}/api/rooms/{room}/business", base(&srv)))
         .bearer_auth(&jwt)
         .json(&json!({ "org_id": org, "project_id": project, "cloud_recording_enabled": true }))
         .send()
@@ -229,7 +232,7 @@ async fn room_binding_is_inherited_by_new_call() {
     // A new call on that room inherits org/project/recording from the binding.
     let svc = TranscriptService::new(srv.pool.clone());
     let sid = Uuid::new_v4();
-    svc.session_started(sid, "inherit-room").await.unwrap();
+    svc.session_started(sid, &room).await.unwrap();
     let (got_org, got_project, recording): (Option<Uuid>, Option<Uuid>, bool) = sqlx::query_as(
         "SELECT org_id, project_id, cloud_recording_enabled FROM call_sessions WHERE id = $1",
     )
@@ -793,4 +796,53 @@ async fn live_transcript_is_resolved_into_the_readers_language() {
 
     // A malformed locale is a clear 400, not a silent fallback hiding a client bug.
     assert_eq!(read(Some("../../etc/passwd")).await.status(), 400);
+}
+
+/// A room code is the only thing a tenant needs to know to address a room, and binding is
+/// "any member of the TARGET org". Without a guard, a member of org B could re-point org A's
+/// room at org B — taking its recording and transcript and billing it to B, and wiping A's
+/// binding. Re-binding stays open to the same org and to whoever made the binding.
+#[tokio::test]
+async fn a_member_of_another_org_cannot_overwrite_a_rooms_binding() {
+    let Some(srv) = setup().await else {
+        eprintln!("skipping — no DATABASE_URL");
+        return;
+    };
+    let http = Client::new();
+    let (owner_a, jwt_a) = user(&srv).await;
+    let org_a = make_org(&srv, owner_a).await;
+    let (owner_b, jwt_b) = user(&srv).await;
+    let org_b = make_org(&srv, owner_b).await;
+    let room = format!("room-{}", Uuid::new_v4().simple());
+    let url = format!("{}/api/rooms/{room}/business", base(&srv));
+    let bind = |jwt: &str, org: Uuid| {
+        http.patch(&url)
+            .bearer_auth(jwt.to_string())
+            .json(&json!({ "org_id": org }))
+            .send()
+    };
+
+    assert_eq!(bind(&jwt_a, org_a).await.unwrap().status(), 200);
+
+    // Org B's member cannot take the room over...
+    assert_eq!(bind(&jwt_b, org_b).await.unwrap().status(), 409);
+    let bound: Uuid =
+        sqlx::query_scalar("SELECT org_id FROM room_business_bindings WHERE room = $1")
+            .bind(&room)
+            .fetch_one(&srv.pool)
+            .await
+            .unwrap();
+    assert_eq!(bound, org_a, "the original binding is untouched");
+
+    // ...org A can still re-bind its own room (e.g. to change the project)...
+    assert_eq!(bind(&jwt_a, org_a).await.unwrap().status(), 200);
+
+    // ...and the person who made the binding can move it to another org they belong to.
+    sqlx::query("INSERT INTO organization_members (org_id, user_id, role) VALUES ($1, $2, 'member') ON CONFLICT DO NOTHING")
+        .bind(org_b)
+        .bind(owner_a)
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+    assert_eq!(bind(&jwt_a, org_b).await.unwrap().status(), 200);
 }

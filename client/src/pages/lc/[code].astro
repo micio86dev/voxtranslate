@@ -1,0 +1,71 @@
+---
+// Live Connect, guest side (spec 0121): somebody opened an invitation link or scanned a QR.
+// No account, no credit, no app: pick a language, accept the notice, talk.
+//
+// Rendered ON DEMAND like `/w/[code]`: the code is a path parameter, so there is no
+// meaningful static page to prebuild. It is read here from the route and handed to the page
+// script through a data attribute; it is never logged, and never sent anywhere except the
+// join request. The page is never indexed, and the invitation link must not leak through a
+// Referer header (vercel.json + a meta set by the page script).
+export const prerender = false;
+
+import Base from '../../layouts/Base.astro';
+import en from '../../scripts/i18n/en.json';
+
+const { code = '' } = Astro.params;
+const T = (k: string): string => (en as Record<string, string>)[k] ?? '';
+---
+
+<Base
+  title="Join a conversation — VoxTranslate"
+  description="Join a live translated conversation. No account needed."
+  noindex={true}
+>
+  <main class="lc-page" id="lg-root" data-code={code}>
+    <div class="lc-hero" id="lg-hero">
+      <h1 class="lc-title" data-i18n="liveJoinTitle">{T('liveJoinTitle')}</h1>
+      <p class="lc-sub" data-i18n="liveJoinSub">{T('liveJoinSub')}</p>
+    </div>
+
+    <!-- 1. JOIN. A language, an optional name, one required consent, one button. -->
+    <section class="lc-stack" id="lg-join">
+      <div class="card lc-card-setup">
+        <div class="field">
+          <span class="field-label" data-i18n="liveYourLang">{T('liveYourLang')}</span>
+          <div id="lg-lang"></div>
+        </div>
+
+        <label class="field" for="lg-name">
+          <span class="field-label" data-i18n="liveYourName">{T('liveYourName')}</span>
+          <input id="lg-name" type="text" maxlength="40" autocomplete="nickname" data-i18n-ph="liveGuestName" placeholder={T('liveGuestName')} />
+        </label>
+
+        <p class="lc-note" id="lg-notice" data-i18n="liveJoinNotice">{T('liveJoinNotice')}</p>
+
+        <label class="lc-check">
+          <input type="checkbox" id="lg-consent" aria-describedby="lg-notice" />
+          <span data-i18n="liveConsent">{T('liveConsent')}</span>
+        </label>
+
+        <button id="lg-join-btn" class="btn-primary lc-full" type="button" data-i18n="liveJoin">{T('liveJoin')}</button>
+
+        <p id="lg-status" class="lc-error" role="alert" hidden></p>
+        <div class="lc-error-actions" id="lg-actions" hidden>
+          <button id="lg-retry" class="btn-ghost lc-action" type="button" hidden data-i18n="talkRetry">{T('talkRetry')}</button>
+          <a id="lg-home" class="btn-ghost lc-action" href="/" hidden data-i18n="liveBackHome">{T('liveBackHome')}</a>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2 + 3 + 4. Microphone prompt, conversation and ending all live in the shared room. -->
+    <section class="lc-stack" id="lg-session" hidden>
+      <div id="lg-room"></div>
+    </section>
+  </main>
+
+  <script>
+    import { mountLiveGuest } from '../../scripts/live/page-guest';
+
+    void mountLiveGuest();
+  </script>
+</Base>
