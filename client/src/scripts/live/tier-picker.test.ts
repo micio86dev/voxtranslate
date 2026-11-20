@@ -164,3 +164,42 @@ describe('balance', () => {
     expect(p.get()).toBe('standard');
   });
 });
+
+describe('Enhanced card', () => {
+  const enhanced = (over: Partial<LiveEngine> = {}): LiveEngine =>
+    std({ id: 'cartesia', display_name: 'Enhanced', tier: 'enhanced', rate_per_minute: 0.06, min_balance: 0.6, client_direct: true, description: 'server enhanced text', ...over });
+  const three = (): LiveEngines => ({ default: 'standard', engines: [std(), enhanced(), premium()] });
+
+  it('sits between Standard and Premium in the order the server gave, with Meet\'s wording and the per-language cost', () => {
+    const p = mount();
+    p.setEngines(three());
+    expect(radios().map((r) => r.value)).toEqual(['standard', 'cartesia', 'gemini_live_translate']);
+    expect(card('cartesia').textContent).toContain(EN.engineDescEnhanced);
+    expect(card('cartesia').textContent).not.toContain('server enhanced text');
+    expect(card('cartesia').textContent).toContain('from $0.06 / min per language');
+    expect(hint.textContent).toBe(EN.engineCostPerLanguage);
+  });
+
+  it('uses the Enhanced wording even when the server leaves its tier name out', () => {
+    const p = mount();
+    p.setEngines({ default: 'standard', engines: [std(), enhanced({ tier: '' })] });
+    expect(card('cartesia').textContent).toContain(EN.engineDescEnhanced);
+  });
+
+  it('is disabled with the reason when the balance cannot start it', () => {
+    balance = 0.1;
+    mount().setEngines(three());
+    expect(radio('cartesia').disabled).toBe(true);
+    expect(card('cartesia').textContent).toContain('Needs at least $0.60 in your balance.');
+  });
+
+  it('tells the page when another card is picked, and when the list lands (the resolved choice)', () => {
+    const onChange = vi.fn();
+    const p = mountTierPicker(root, { idPrefix: 'lh', hint, balance: () => balance, load: () => 'cartesia', save, onChange });
+    p.setEngines(three());
+    expect(onChange).toHaveBeenLastCalledWith('cartesia');
+    radio('standard').click();
+    expect(onChange).toHaveBeenLastCalledWith('standard');
+    expect(save).toHaveBeenCalledWith('standard');
+  });
+});

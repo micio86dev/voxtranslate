@@ -27,6 +27,8 @@ import { pcmPlayback } from '../pcm-playback';
 import { setNetworkDegraded } from '../net-status';
 import { releaseWakeLock, requestWakeLock } from '../wake-lock';
 import { WS_BASE } from '../auth';
+import { isRestrictedNetwork } from '../restricted-net';
+import type { EnhancedSessionResponse } from '../api';
 import { SelfAudioGuard, startLevelMonitor } from '../talk/self-audio-guard';
 import {
   RECONNECT_MAX_ATTEMPTS,
@@ -34,7 +36,9 @@ import {
   classifyMediaError,
   browserSupported,
 } from '../talk/conversation';
-import { endSession, getSession, type ApiResult, type SessionInfo } from './api';
+import { endSession, enhancedSession, getSession, type ApiResult, type SessionInfo } from './api';
+import { EnhancedEngine, type EnhancedDeps, type EnhancedFailure, type EnhancedLike } from './enhanced';
+import { ENHANCED_ENGINE_ID } from './tiers';
 import {
   clearStoredSession,
   loadHeadphones,
@@ -142,6 +146,8 @@ export interface LiveCallbacks {
    */
   onEngineDowngraded?: (change: { from: string; to: string; reason: string }) => void;
   onBargeIn?: () => void;
+  /** Enhanced only: this phone is speaking a translation now (the shared playback graph is audible). */
+  onSpeaking?: (speaking: boolean) => void;
 }
 
 export interface LiveConversationOptions extends LiveCallbacks {
@@ -159,6 +165,8 @@ export interface LiveConversationOptions extends LiveCallbacks {
   maxGuests?: number;
   /** The tier the conversation runs on; kept in the stored session. Absent = standard. */
   engine?: string;
+  /** Kept in the stored session only (the room shows a guest the line about the host's voice). */
+  voiceClone?: boolean;
   headphones?: boolean;
   // --- injectable seams, all defaulted -------------------------------------
   createSocket?: (url: string) => LiveSocket;
@@ -176,6 +184,10 @@ export interface LiveConversationOptions extends LiveCallbacks {
   sinkSupported?: () => boolean;
   setSink?: (deviceId: string) => Promise<void>;
   enumerateDevices?: () => Promise<MediaDeviceInfo[]>;
+  /** Enhanced tier seams (spec 0121, S5). */
+  createEnhanced?: (deps: EnhancedDeps) => EnhancedLike;
+  enhancedSessionImpl?: (sessionId: string, token: string) => Promise<ApiResult<EnhancedSessionResponse>>;
+  isRestricted?: () => Promise<boolean>;
 }
 
 /** The `/ws/live` URL. The token is the ONLY parameter: identity comes from the server. */
@@ -272,6 +284,9 @@ export class LiveConversation {
 
   /** The tier the conversation runs on right now: what was asked for, until a downgrade. */
   private engine: string | undefined;
+  /** Enhanced only: Cartesia on this phone (STT on my microphone, TTS for what I hear). */
+  private enhanced: EnhancedLike | null = null;
+  private lastRestartAt = -Infinity;
 
   private outputDeviceId: string | null = null;
   private appliedSink: string | null = null;
@@ -300,7 +315,10 @@ export class LiveConversation {
       // Hold my microphone while the partner's translation is audible: on one device the
       // speaker feeds the mic. Barge-in reopens it when I talk over the translation.
       setGated: (gated) => this.capture?.setGated(gated),
-      cancelPlayback: () => this.playback.reset(),
+      cancelPlayback: () => {
+        this.playback.reset();
+        this.enhanced?.cancelSpeech();
+      },
       onBargeIn: () => this.opts.onBargeIn?.(),
       now: this.now,
     });
@@ -456,6 +474,7 @@ export class LiveConversation {
       ...(this.opts.inviteUrl ? { inviteUrl: this.opts.inviteUrl } : {}),
       ...(this.opts.maxGuests ? { maxGuests: this.opts.maxGuests } : {}),
       ...(this.engine ? { engine: this.engine } : {}),
+      ...(this.opts.voiceClone ? { voiceClone: true } : {}),
     });
   }
 
@@ -506,8 +525,7 @@ export class LiveConversation {
   private teardown(): void {
     this.clearReconnect();
     this.clearStartRetry();
-    this.capture?.stop();
-    this.capture = null;
+    this.detachCapture();
     this.stopLevelWatch();
     this.releaseStream();
     const sock = this.socket;
@@ -555,15 +573,111 @@ export class LiveConversation {
     sock.onclose = () => {
       if (this.socket !== sock) return; // a socket we already replaced or detached
       this.socket = null;
-      this.capture?.stop();
-      this.capture = null;
+      this.detachCapture();
       this.dispatch({ type: 'SOCKET_CLOSED' });
       this.scheduleReconnect();
     };
   }
 
+  private isEnhanced(): boolean {
+    return this.engine === ENHANCED_ENGINE_ID;
+  }
+
+  /** Stop whatever is capturing (PCM or Enhanced) and let go of it. */
+  private detachCapture(): void {
+    this.capture?.stop();
+    this.capture = null;
+    if (this.enhanced) {
+      this.enhanced.close();
+      this.enhanced = null;
+      this.opts.onSpeaking?.(false);
+    }
+  }
+
+  /**
+   * Enhanced: Cartesia STT on my own microphone, Cartesia TTS for what I hear. The engine is the
+   * capture (the echo guard gates it like a PCM one); `start` goes out only once its token is in
+   * hand, so a seat never opens its meter and then cannot reach Cartesia.
+   */
+  private attachEnhanced(sock: LiveSocket): void {
+    if (!this.stream) return;
+    this.detachCapture();
+    const make = this.opts.createEnhanced ?? ((d: EnhancedDeps) => new EnhancedEngine(d));
+    const fetchToken = this.opts.enhancedSessionImpl ?? enhancedSession;
+    const engine: EnhancedLike = make({
+      stream: this.stream,
+      myLang: this.opts.myLang,
+      fetchToken: () => fetchToken(this.opts.sessionId, this.opts.token),
+      control: (msg) => {
+        if (this.socket === sock) this.sendControl(msg);
+      },
+      onMine: (text, final) => this.onMineText(text, final),
+      onFailure: (failure) => this.onEnhancedFailure(engine, failure),
+      playAudio: (speakerId, seq, b64) => this.playback.enqueue(speakerId, seq, b64),
+      isRestricted: this.opts.isRestricted ?? isRestrictedNetwork,
+    });
+    this.enhanced = engine;
+    this.capture = engine;
+    if (this.guard.isGated()) engine.setGated(true);
+    void engine.open().then((ok) => {
+      if (ok && this.enhanced === engine && !this.muted) engine.start();
+    });
+  }
+
+  /** Cartesia could not be used on this phone. Say how once; the engine has already closed itself. */
+  private onEnhancedFailure(engine: EnhancedLike, failure: EnhancedFailure): void {
+    if (this.enhanced !== engine) return;
+    this.capture = null;
+    this.enhanced = null;
+    switch (failure.kind) {
+      case 'fallback':
+        // The whole conversation moves to Standard; `engine_downgraded` is the answer, and the
+        // switch to PCM happens there, once, for every seat alike.
+        this.sendControl({ type: 'enhanced_fallback', reason: failure.reason });
+        break;
+      case 'not_enhanced':
+        // The server already runs Standard (a downgrade this phone missed): just follow it.
+        this.engine = 'standard';
+        this.persist();
+        this.opts.onEngineDowngraded?.({ from: ENHANCED_ENGINE_ID, to: 'standard', reason: 'not_enhanced' });
+        this.resumePcm();
+        break;
+      case 'gone':
+        this.opts.onNotice?.('enhanced_auth');
+        break;
+    }
+  }
+
+  /** From Enhanced to the PCM path on the live socket, as if the conversation had started there. */
+  private resumePcm(): void {
+    this.opts.onSpeaking?.(false);
+    const sock = this.socket;
+    if (!sock || sock.readyState !== 1) return; // the next `onopen` attaches PCM
+    this.attachCapture(sock);
+    this.sendStart();
+  }
+
+  /** My own words, from my own recogniser: the server never captions a speaker to themselves. */
+  private onMineText(text: string, final: boolean): void {
+    if (final) {
+      this.guard.setSpeechActive(false);
+      this.flushPending(ME);
+      this.pending.set(ME, this.exchange('me', text, this.opts.myLang, '', ''));
+      this.mineLine = { text, original: '', lang: this.opts.myLang, settled: true };
+    } else {
+      if (this.mineLine?.settled) this.flushPending(ME);
+      this.mineLine = { text, original: '', lang: this.opts.myLang, settled: false };
+      this.guard.setSpeechActive(true);
+    }
+    this.emitCaptions();
+  }
+
   private attachCapture(sock: LiveSocket): void {
     if (!this.stream) return;
+    if (this.isEnhanced()) {
+      this.attachEnhanced(sock);
+      return;
+    }
     this.capture?.stop();
     // Always PCM: the server sends `capture_format{pcm:true}` and feeding it WebM produces
     // silence with no error at all.
@@ -588,7 +702,8 @@ export class LiveConversation {
 
   /** Idempotent on the server: it opens upstream sessions lazily per target language. */
   private sendStart(): void {
-    if (this.muted) return;
+    // Enhanced opens the meter itself, once its recogniser is connected.
+    if (this.muted || this.isEnhanced()) return;
     this.sendControl({ type: 'start' });
   }
 
@@ -614,6 +729,12 @@ export class LiveConversation {
     if (this.isTerminal() || this.ctx.phase !== 'reconnecting') return; // ended while probing
     if (result.ok) {
       const status = result.data.session.status;
+      // The tier may have changed while this phone was away (a fallback it did not hear).
+      const tier = result.data.session.engine;
+      if (tier && tier !== this.engine) {
+        this.engine = tier;
+        this.persist();
+      }
       if (status === 'ended' || status === 'expired') {
         this.finish({ type: 'SESSION_ENDED', reason: asEndReason(undefined, status) });
         return;
@@ -723,11 +844,28 @@ export class LiveConversation {
       case 'low_balance':
         this.opts.onLowBalance?.(Number(msg.balance ?? 0));
         break;
+      case 'enhanced_speak':
+        // Another seat spoke in a language that is not mine: say it, in the voice the server chose.
+        if (this.enhanced && this.isEnhanced() && msg.speaker_id !== this.opts.myPeerId && typeof msg.text === 'string') {
+          this.enhanced.speak({
+            speakerId: String(msg.speaker_id ?? ''),
+            segmentId: String(msg.segment_id ?? ''),
+            text: msg.text,
+            voiceId: typeof msg.voice_id === 'string' && msg.voice_id ? msg.voice_id : null,
+          });
+        }
+        break;
       case 'engine_downgraded': {
-        // The conversation moved to another tier. Say so, and nothing else: no state change.
+        // The conversation moved to another tier. Say so; if it was Enhanced, Cartesia stops here
+        // and this phone streams PCM like a Standard one.
         const to = typeof msg.to === 'string' && msg.to ? msg.to : 'standard';
+        const leavesEnhanced = this.isEnhanced() && to !== ENHANCED_ENGINE_ID;
         this.engine = to;
         this.persist();
+        if (leavesEnhanced) {
+          this.detachCapture();
+          this.resumePcm();
+        }
         this.opts.onEngineDowngraded?.({
           from: typeof msg.from === 'string' ? msg.from : '',
           to,
@@ -764,6 +902,14 @@ export class LiveConversation {
         return;
       case 'live_busy':
         this.finish({ type: 'FATAL', kind: 'busy' });
+        return;
+      case 'enhanced_not_active':
+        // Usually a frame that crossed a mute. If the server really lost the meter, say `start`
+        // again (idempotent), at most every few seconds.
+        if (this.isEnhanced() && this.enhanced && !this.muted && this.now() - this.lastRestartAt > 3_000) {
+          this.lastRestartAt = this.now();
+          this.sendControl({ type: 'start' });
+        }
         return;
       case 'audio_session_closed':
       case 'engine_unavailable':
@@ -955,6 +1101,7 @@ export class LiveConversation {
 
   private onPlaybackChange(playing: boolean): void {
     this.guard.onPlaybackChange(playing);
+    if (this.isEnhanced()) this.opts.onSpeaking?.(playing);
     // The first audible sample is the first moment the graph certainly exists.
     if (playing && this.outputDeviceId && this.appliedSink !== this.outputDeviceId) {
       void this.applySink();

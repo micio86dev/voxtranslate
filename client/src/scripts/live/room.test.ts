@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+const EN_TEXT = en as Record<string, string>;
 const setBalance = vi.fn();
 const cachedUser: { balance?: number } | null = { balance: undefined };
 vi.mock('../auth', () => ({
@@ -10,6 +11,7 @@ vi.mock('../auth', () => ({
 const toast = vi.fn();
 vi.mock('../toast', () => ({ toast: (...a: unknown[]) => toast(...a) }));
 
+import en from '../i18n/en.json';
 import { mountRoom } from './room';
 import { initialContext, type LiveContext } from './session-machine';
 import type { LiveConversationOptions, Captions } from './conversation';
@@ -450,5 +452,79 @@ describe('translation tier in the room', () => {
     downgrade();
     expect(notice().textContent).toContain('Premium is busy, so this conversation continues on Standard.');
     expect(notice().textContent).not.toMatch(/billed|rate|\$/i);
+  });
+});
+
+describe('Enhanced in the room', () => {
+  const ENHANCED: StoredSession = { ...SESSION, engine: 'cartesia' };
+  const badge = () => host.querySelector('#lc-tier') as HTMLElement;
+  const notice = () => host.querySelector('#lc-tier-notice') as HTMLElement;
+  const speaking = () => host.querySelector('#lc-speaking') as HTMLElement;
+  const voiceNote = () => host.querySelector('#lc-voice-note') as HTMLElement;
+  const downgrade = (reason: string) => made[0].opts.onEngineDowngraded?.({ from: 'cartesia', to: 'standard', reason });
+
+  it('shows Enhanced in the badge, for host and guest', () => {
+    for (const role of ['host', 'guest'] as const) {
+      host.innerHTML = '';
+      made = [];
+      mount({ role, session: ENHANCED });
+      expect(badge().textContent).toBe('Quality: Enhanced');
+    }
+  });
+
+  it('the speaking line is a quiet polite status, hidden until a translation is being spoken', () => {
+    mount({ session: ENHANCED });
+    expect(speaking().hidden).toBe(true);
+    expect(speaking().getAttribute('aria-live')).toBe('polite');
+    expect(speaking().textContent).toBe(EN_TEXT.talkStatusSpeaking);
+    made[0].opts.onSpeaking?.(true);
+    expect(speaking().hidden).toBe(false);
+    made[0].opts.onSpeaking?.(false);
+    expect(speaking().hidden).toBe(true);
+  });
+
+  it('a fallback to Standard gets Enhanced-specific words (not "busy"), polite, and no money talk for a guest', () => {
+    mount({ session: ENHANCED });
+    downgrade('enhanced_unavailable');
+    expect(notice().hidden).toBe(false);
+    expect(notice().getAttribute('aria-live')).toBe('polite');
+    expect(notice().textContent).toContain('Enhanced isn\'t available right now. Continuing on Standard, billed at the Standard rate.');
+    expect(badge().textContent).toBe('Quality: Standard');
+    host.innerHTML = '';
+    made = [];
+    mount({ role: 'guest', session: ENHANCED });
+    downgrade('enhanced_unavailable');
+    expect(notice().textContent).toContain('Enhanced isn\'t available right now, so this conversation continues on Standard.');
+    expect(notice().textContent).not.toMatch(/billed|rate|\$/i);
+  });
+
+  it('not_enhanced (a downgrade this phone missed) is told the same way', () => {
+    mount({ session: ENHANCED });
+    downgrade('not_enhanced');
+    expect(notice().textContent).toContain('Enhanced isn\'t available');
+  });
+
+  it('a guest is told the host\'s voice is imitated, only while Enhanced with the host\'s clone is what they hear', () => {
+    mount({ role: 'guest', session: { ...ENHANCED, voiceClone: true } });
+    expect(voiceNote().hidden).toBe(false);
+    expect(voiceNote().textContent).toBe(EN_TEXT.liveJoinNoticeVoiceClone);
+    downgrade('enhanced_unavailable');
+    expect(voiceNote().hidden).toBe(true);
+  });
+
+  it('nobody else sees that line: not the host, not a guest without the clone, not a Standard conversation', () => {
+    mount({ role: 'host', session: { ...ENHANCED, voiceClone: true } });
+    expect(voiceNote().hidden).toBe(true);
+    host.innerHTML = '';
+    mount({ role: 'guest', session: ENHANCED });
+    expect(voiceNote().hidden).toBe(true);
+    host.innerHTML = '';
+    mount({ role: 'guest', session: { ...SESSION, engine: 'standard', voiceClone: true } });
+    expect(voiceNote().hidden).toBe(true);
+  });
+
+  it('hands the voice flag to the engine so it is kept in the stored session', () => {
+    mount({ role: 'guest', session: { ...ENHANCED, voiceClone: true } });
+    expect(made[0].opts.voiceClone).toBe(true);
   });
 });

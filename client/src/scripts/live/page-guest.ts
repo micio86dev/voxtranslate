@@ -96,6 +96,8 @@ async function join(): Promise<void> {
     ...(d.max_guests ? { maxGuests: d.max_guests } : {}),
     // The tier the host chose (`standard` after a fallback): shown as a badge in the room.
     ...(d.engine ? { engine: d.engine } : {}),
+    // Enhanced + the host's cloned voice: the room says so (the join response is the first the guest can know).
+    ...(d.voice_clone ? { voiceClone: true } : {}),
   };
   saveStoredSession(session);
   enterSession(session);
@@ -115,6 +117,7 @@ async function resumable(): Promise<StoredSession | null> {
         ...(info.max_guests && !stored.maxGuests ? { maxGuests: info.max_guests } : {}),
         // The server knows the tier NOW: a Premium conversation may have fallen back to Standard.
         ...(info.engine ? { engine: info.engine } : {}),
+        ...(info.voice_clone ? { voiceClone: true } : {}),
       };
     }
   } else if (res.status === 0 || res.status >= 500) {

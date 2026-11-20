@@ -8,6 +8,8 @@ import { t } from '../i18n';
 import { pcmPlayback } from '../pcm-playback';
 import { toast } from '../toast';
 import { createSession, getSession, listEngines } from './api';
+import { isRestrictedNetwork } from '../restricted-net';
+import { prepareVoice, type VoicePrepState } from './voice-prep';
 import { defaultLanguage, mountLangPicker, pickableLanguages, type LangPicker } from './lang-picker';
 import { errorInfo, type ErrorAction } from './messages';
 import { byId, initPage, setHidden } from './page-common';
@@ -23,11 +25,13 @@ import {
   type StoredSession,
 } from './session-store';
 import { mountTierPicker, type TierPicker } from './tier-picker';
-import { parseEngines } from './tiers';
+import { ENHANCED_ENGINE_ID, parseEngines, selectableTiers, type LiveEngines, type VoiceCloneInfo } from './tiers';
 
 let picker: LangPicker | null = null;
 let tierPicker: TierPicker | null = null;
 let creating = false;
+/** The tiers on offer, with what each says about the host's voice clone (Enhanced only). */
+let offered: LiveEngines | null = null;
 
 /** The seats of THIS conversation: how many guests it admits, and which peers took one. A
  *  seat stays taken when its guest drops, so it is counted from everybody ever seen. */
@@ -52,6 +56,67 @@ function paintGuestsHint(): void {
   const hint = byId('lh-guests-hint');
   const n = chosenGuests();
   if (hint) hint.textContent = n === 1 ? t('liveGuestsHintOne') : fill(t('liveGuestsHint'), { max: String(n) });
+}
+
+/** What Enhanced says about the host's voice, while Enhanced is the card picked. */
+function voiceInfo(): VoiceCloneInfo | undefined {
+  const id = tierPicker?.get();
+  return id === ENHANCED_ENGINE_ID ? offered?.engines.find((e) => e.id === id)?.voice_clone : undefined;
+}
+
+/**
+ * The voice-clone controls follow the tier card: a consent checkbox when a clone can be used,
+ * "Prepare my voice" when cloning is on but this account has none yet, nothing otherwise.
+ * Consent never survives a change of card (or of the list): it is asked for again every time.
+ */
+function paintVoiceClone(): void {
+  const v = voiceInfo();
+  const offer = !!v?.available;
+  const prepare = !!v && !v.available && v.cloning_enabled && !v.has_clone;
+  setHidden('lh-voice-field', !offer);
+  setHidden('lh-voiceprep', !prepare);
+  const box = byId<HTMLInputElement>('lh-voice-clone');
+  if (box && !offer) box.checked = false;
+}
+
+const PREP_KEYS: Record<VoicePrepState, string> = {
+  recording: 'voicePrepRecording',
+  saving: 'voicePrepSaving',
+  cloned: 'voicePrepSaved',
+  failed: 'voicePrepFailed',
+};
+
+async function runPrepare(): Promise<void> {
+  const btn = byId<HTMLButtonElement>('lh-voiceprep-record');
+  const status = byId('lh-voiceprep-status');
+  const meter = byId<HTMLProgressElement>('lh-voiceprep-meter');
+  if (!btn || btn.disabled) return;
+  btn.disabled = true;
+  const ok = await prepareVoice(
+    picker?.get() ?? 'en',
+    (state) => {
+      if (status) {
+        status.textContent = t(PREP_KEYS[state]);
+        status.dataset.state = state;
+      }
+      if (meter) {
+        meter.hidden = state !== 'recording';
+        if (state === 'recording') meter.value = 0;
+      }
+    },
+    (fraction) => {
+      if (meter) meter.value = Math.min(1, Math.max(0, fraction));
+    },
+  );
+  btn.disabled = false;
+  const v = voiceInfo();
+  if (ok && v) {
+    // The account has a clone now; whether to USE it for this conversation is still the host's call.
+    v.has_clone = true;
+    v.available = true;
+    paintVoiceClone();
+    byId<HTMLInputElement>('lh-voice-clone')?.focus();
+  }
 }
 
 const tierOf = (engine: string | undefined): { engine?: string } => (engine ? { engine } : {});
@@ -219,12 +284,16 @@ async function create(): Promise<void> {
   clearError();
   const guests = chosenGuests();
   const tier = tierPicker?.get() ?? DEFAULT_ENGINE_ID;
+  // Only an explicit, visible opt-in on the Enhanced card travels.
+  const voiceClone =
+    tier === ENHANCED_ENGINE_ID && !!voiceInfo()?.available && !!byId<HTMLInputElement>('lh-voice-clone')?.checked;
   const res = await createSession({
     lang,
     saveTranscript: !!byId<HTMLInputElement>('lh-transcript')?.checked,
     maxGuests: guests,
     // Standard is the server's default: only another tier is asked for.
     ...(tier === DEFAULT_ENGINE_ID ? {} : { engine: tier }),
+    ...(voiceClone ? { voiceClone: true } : {}),
   });
   creating = false;
   if (btn) {
@@ -291,6 +360,9 @@ export async function mountLiveHost(): Promise<void> {
     return;
   }
 
+  // Started now so the reachability verdict is ready when the tier list lands (never throws).
+  const restricted = isRestrictedNetwork();
+
   const codes = pickableLanguages().map((l) => l.code);
   const lang$ = byId('lh-lang');
   if (lang$) {
@@ -309,9 +381,11 @@ export async function mountLiveHost(): Promise<void> {
         balance: () => getUser()?.balance,
         load: loadTierPref,
         save: saveTierPref,
+        onChange: () => paintVoiceClone(),
       })
     : null;
   byId('lh-create')?.addEventListener('click', () => void create());
+  byId('lh-voiceprep-record')?.addEventListener('click', () => void runPrepare());
   paintGuestsHint();
   document.querySelectorAll('input[name="lh-guests"]').forEach((r) => r.addEventListener('change', paintGuestsHint));
 
@@ -321,12 +395,15 @@ export async function mountLiveHost(): Promise<void> {
     return;
   }
   setHidden('lh-setup', false);
-  void loadTiers();
+  void loadTiers(restricted);
 }
 
 /** The tiers on offer, once the setup is on screen. Any failure leaves Standard, silently. */
-async function loadTiers(): Promise<void> {
+async function loadTiers(restricted: Promise<boolean>): Promise<void> {
   const res = await listEngines();
-  const list = res.ok ? parseEngines(res.data) : null;
-  if (list) tierPicker?.setEngines(list);
+  const parsed = res.ok ? parseEngines(res.data) : null;
+  if (!parsed) return;
+  // Behind the Great Firewall the phone cannot reach Cartesia: Enhanced is not offered (Meet's rule).
+  offered = selectableTiers(parsed, await restricted);
+  tierPicker?.setEngines(offered);
 }

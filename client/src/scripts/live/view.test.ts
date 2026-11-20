@@ -13,6 +13,8 @@ import {
   renderOutputOptions,
   renderPartners,
   renderPhase,
+  renderSpeaking,
+  renderVoiceNote,
   type RoomEls,
 } from './view';
 import { initialContext, type LiveContext } from './session-machine';
@@ -372,5 +374,29 @@ describe('renderOutputOptions', () => {
     expect(els.outputField.hidden).toBe(false);
     expect([...els.output.options].map((o) => o.textContent)).toEqual(['Default', 'Speaker']);
     expect([...els.output.options].map((o) => o.value)).toEqual(['default', 'abc']);
+  });
+});
+
+describe('Enhanced room pieces', () => {
+  it('the speaking line and the host-voice line are hidden quiet statuses until asked for', () => {
+    const els = buildRoom(document, { role: 'guest' });
+    expect(els.speaking.hidden).toBe(true);
+    expect(els.voiceNote.hidden).toBe(true);
+    expect(els.speaking.getAttribute('aria-live')).toBe('polite');
+    expect(els.voiceNote.getAttribute('role')).toBe('status');
+    renderSpeaking(els, true);
+    renderVoiceNote(els, true);
+    expect(els.speaking.hidden).toBe(false);
+    expect(els.voiceNote.hidden).toBe(false);
+    renderSpeaking(els, false);
+    renderVoiceNote(els, false);
+    expect(els.speaking.hidden).toBe(true);
+    expect(els.voiceNote.hidden).toBe(true);
+  });
+
+  it('names Enhanced in the tier badge', () => {
+    const els = buildRoom(document, { role: 'host' });
+    renderTier(els, 'cartesia');
+    expect(els.tier.textContent).toBe('Quality: Enhanced');
   });
 });

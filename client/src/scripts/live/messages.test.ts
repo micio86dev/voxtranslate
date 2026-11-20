@@ -177,3 +177,27 @@ describe('noticeKey', () => {
     expect(noticeKey('xyz')).toBe('talkErrorGeneric');
   });
 });
+
+describe('Enhanced messages', () => {
+  it.each([
+    ['voice_clone_unavailable', 'liveErrVoiceCloneUnavailable', 'none'],
+    ['bad_voice_clone', 'liveErrBadVoiceClone', 'none'],
+    ['enhanced_unavailable', 'liveErrEnhancedUnavailable', 'none'],
+    ['not_enhanced', 'liveErrEnhancedUnavailable', 'none'],
+    ['rate_limited', 'liveErrRateLimited', 'retry'],
+  ])('%s -> %s', (code, key, action) => {
+    expect(errorInfo(code, 'host')).toEqual({ key, action });
+    expect(EN[key]).toBeTruthy();
+  });
+
+  it('insufficient_balance on the token endpoint keeps its host/guest wording', () => {
+    expect(errorInfo('insufficient_balance', 'host').key).toBe('liveErrInsufficient');
+    expect(errorInfo('insufficient_balance', 'guest').key).toBe('liveErrOwnerCredits');
+  });
+
+  it('in-conversation Enhanced errors have their own notices', () => {
+    expect(noticeKey('translation_unavailable')).toBe('liveNoticeEngine');
+    expect(noticeKey('text_too_long')).toBe('liveNoticeTextTooLong');
+    expect(EN.liveNoticeTextTooLong).toBeTruthy();
+  });
+});

@@ -5,7 +5,7 @@ vi.mock('../auth', () => ({
   authHeaders: () => ({ Authorization: 'Bearer ACCOUNT-JWT' }),
 }));
 
-import { answerSession, createSession, deskWaiting, endSession, getSession, joinSession, listEngines, myDesks, scanDesk, type ApiResult } from './api';
+import { answerSession, createSession, deskWaiting, endSession, enhancedSession, getSession, joinSession, listEngines, myDesks, scanDesk, type ApiResult } from './api';
 
 function res(status: number, body: unknown): Response {
   return new Response(typeof body === 'string' ? body : JSON.stringify(body), {
@@ -285,5 +285,52 @@ describe('listEngines', () => {
   it('reports a failure as a result, never a throw', async () => {
     expect(await listEngines(fetcher(new TypeError('offline')) as never)).toEqual({ ok: false, status: 0, code: 'network' });
     expect(await listEngines(fetcher(res(401, { code: 'unauthorized' })) as never)).toMatchObject({ ok: false, status: 401 });
+  });
+});
+
+describe('Enhanced: voice clone and token', () => {
+  it('createSession sends voice_clone only when the host opted in', async () => {
+    const f = fetcher(res(200, { ...CREATED, engine: 'cartesia', voice_clone: true }));
+    const out = await createSession({ lang: 'it', saveTranscript: false, engine: 'cartesia', voiceClone: true }, f as never);
+    expect(JSON.parse(String(f.mock.calls[0][1]?.body))).toEqual({ lang: 'it', save_transcript: false, engine: 'cartesia', voice_clone: true });
+    expect(out.ok && out.data.voice_clone).toBe(true);
+    for (const voiceClone of [undefined, false]) {
+      const g = fetcher(res(200, CREATED));
+      await createSession({ lang: 'it', saveTranscript: false, engine: 'cartesia', voiceClone }, g as never);
+      expect(JSON.parse(String(g.mock.calls[0][1]?.body))).not.toHaveProperty('voice_clone');
+    }
+  });
+
+  it.each(['voice_clone_unavailable', 'bad_voice_clone', 'engine_not_available'])('surfaces %s as a code', async (code) => {
+    const out = await createSession({ lang: 'it', saveTranscript: false, engine: 'cartesia', voiceClone: true }, fetcher(res(400, { code })) as never);
+    expect(out).toEqual({ ok: false, status: 400, code });
+  });
+
+  it('enhancedSession POSTs with the LIVE token (never the account JWT) and returns Meet\'s shape', async () => {
+    const body = { token: 'CARTESIA', expires_at: 1, cartesia_version: 'v', stt: { endpoint: 'e', model: 'm' }, tts: { endpoint: 'e', model: 'm' }, voice_cloning_enabled: true };
+    const f = fetcher(res(200, body));
+    const out = await enhancedSession('s 1', 'LIVE-TOKEN', f as never);
+    expect(out).toEqual({ ok: true, data: body });
+    const [url, init] = f.mock.calls[0];
+    expect(url).toBe('http://api.test/api/live/sessions/s%201/enhanced/session');
+    expect(init?.method).toBe('POST');
+    expect(init?.headers).toEqual({ Authorization: 'Bearer LIVE-TOKEN' });
+    expect(JSON.stringify(init)).not.toContain('ACCOUNT-JWT');
+  });
+
+  it.each([
+    [401, 'unauthorized'],
+    [403, 'wrong_session'],
+    [410, 'session_ended'],
+    [409, 'not_enhanced'],
+    [402, 'insufficient_balance'],
+    [429, 'rate_limited'],
+    [502, 'enhanced_unavailable'],
+  ])('enhancedSession surfaces %i %s', async (status, code) => {
+    expect(await enhancedSession('s1', 'T', fetcher(res(status, { code })) as never)).toEqual({ ok: false, status, code });
+  });
+
+  it('enhancedSession reports a dead network as status 0', async () => {
+    expect(await enhancedSession('s1', 'T', fetcher(new Error('offline')) as never)).toEqual({ ok: false, status: 0, code: 'network' });
   });
 });

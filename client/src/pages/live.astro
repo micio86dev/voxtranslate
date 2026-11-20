@@ -55,6 +55,26 @@ const T = (k: string): string => (en as Record<string, string>)[k] ?? '';
           <span class="field-label" id="lh-tier-label" data-i18n="liveTier">{T('liveTier')}</span>
           <div class="lc-tier-list" id="lh-tiers" role="radiogroup" aria-labelledby="lh-tier-label"></div>
           <small class="lc-hint" id="lh-tier-hint"></small>
+          <!-- Enhanced only (page-host.ts shows what applies): the host's cloned voice speaks the
+               translations on the guests' phones. The consent sentence is part of the checkbox's label,
+               so it is read out with it, and the box is never pre-checked. -->
+          <div class="lc-voice" id="lh-voice-field" hidden>
+            <label class="lc-check" for="lh-voice-clone">
+              <input type="checkbox" id="lh-voice-clone" />
+              <span>
+                <span data-i18n="liveVoiceClone">{T('liveVoiceClone')}</span>
+                <small class="lc-hint" data-i18n="liveVoiceCloneConsent">{T('liveVoiceCloneConsent')}</small>
+              </span>
+            </label>
+          </div>
+          <div class="lc-voiceprep" id="lh-voiceprep" hidden>
+            <span class="field-label" data-i18n="voicePrepTitle">{T('voicePrepTitle')}</span>
+            <p class="lc-note" data-i18n="voicePrepPrompt">{T('voicePrepPrompt')}</p>
+            <p class="lc-note" data-i18n="voicePrepSample">{T('voicePrepSample')}</p>
+            <progress id="lh-voiceprep-meter" class="lc-meter" max="1" value="0" hidden aria-label={T('voicePrepRecording')}></progress>
+            <button id="lh-voiceprep-record" class="btn-ghost" type="button" data-i18n="voicePrepRecord">{T('voicePrepRecord')}</button>
+            <p id="lh-voiceprep-status" class="lc-hint" role="status" aria-live="polite"></p>
+          </div>
         </div>
 
         <fieldset class="field lc-guests" id="lh-guests-field">

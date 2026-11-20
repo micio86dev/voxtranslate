@@ -465,7 +465,44 @@ device checklist before launch.
   `engine_downgraded` (`conversation.ts` `onEngineDowngraded`) never ends or interrupts anything: the
   badge becomes Standard and a polite, dismissible notice appears. The host's names the billing; a
   guest's never mentions money.
-- Enhanced is a later unit: the picker is a list, so a third card appears when the server lists it.
+- Enhanced is the third card, between Standard and Premium, when the server lists it (see *Enhanced: the
+  client* below).
+
+### Enhanced: the client *(`client/src/scripts/live/enhanced.ts`, `conversation.ts`, `voice-prep.ts`, `page-host.ts`)*
+
+- **Per phone.** `enhanced.ts` runs Cartesia STT on the phone's own microphone stream (the one the PCM path
+  would use), folds the transcripts with Meet's `accumulate`/`liveLine`, and sends `translate_text`
+  (`segment_id`, `text`, `final`) over `/ws/live`. A segment is closed after `IDLE_FLUSH_MS` of silence (Meet's
+  rule). Partials are coalesced to at most one per 200 ms (the server allows 8 frames/s), a final goes out at
+  once, and text over 1000 characters is trimmed (partial) or split into valid frames (final). My own captions
+  come from this local recognition: the server never captions a speaker to themselves.
+- **Speaking.** `enhanced_speak` is queued (12 sentences at most; when the phone falls behind the oldest go),
+  one sentence at a time, on one Cartesia TTS socket, in the `voice_id` the server named or else the token's
+  `default_voice_id`. Audio goes through the shared `pcmPlayback` graph, so the echo guard that gates the PCM
+  path gates this one: while a translation plays the recogniser is held back, and barge-in drops the queue.
+  A "Speaking…" line (polite status) shows while it plays. Listening needs only the token, not the
+  recogniser, so a muted phone still hears.
+- **Token.** Fetched through the live token (`POST /api/live/sessions/{id}/enhanced/session`) before `start`
+  goes out; `start` is sent when the recogniser is connected. Refreshed 5 minutes before `expires_at`; the
+  recogniser is cycled onto the new token (what it holds is sent first) and the speech socket is replaced at
+  the next idle moment. The token is never logged or stored.
+- **Failure.** Exactly one of: `enhanced_fallback{reason}` (refused token 402/429/502/5xx, Cartesia unreachable
+  after 2 retries or an open timeout, three refused sentences in a row, or Meet's restricted-network probe),
+  `not_enhanced` (409: carry on as Standard at once), or `gone` (401/403/410: the live socket decides). After
+  `enhanced_fallback` the phone waits for the server's `engine_downgraded` (the same frame every seat gets);
+  that, and only that, stops Cartesia and starts the PCM path (`start`, then PCM16 mono 24 kHz binary frames).
+  A reconnect asks the server which tier the conversation is on now.
+- **Picker.** Enhanced is dropped on a restricted network (`isRestrictedNetwork` + Meet's
+  `selectableEngines` rule, via `selectableTiers`) and when the server does not list it.
+- **Host voice.** With Enhanced picked and `voice_clone.available`, a checkbox "Speak with my cloned voice"
+  carries the consent sentence inside its label (never pre-checked, cleared when another card is picked);
+  `create` sends `voice_clone:true` only when it is ticked. With `cloning_enabled` but no clone yet, an inline
+  "Voice preparation" panel (`voice-prep.ts`, Meet's `recordVoiceSample` extracted to `voice-sample.ts`, then
+  `cloneVoice`) records 3 to 8 seconds and then offers the checkbox. Guests never clone; the join response's
+  `voice_clone` puts a line in the guest's room (the notice before joining cannot know it).
+- **Not verifiable here.** Real Cartesia and real phones: STT latency, TTS quality, autoplay of audio started
+  by a socket message on iOS Safari, background-tab throttling of the timers above, and whether Cartesia
+  enforces the token's expiry on an open socket (the client rotates conservatively).
 
 ## Billing *(implemented: `server/src/live/billing.rs`)*
 

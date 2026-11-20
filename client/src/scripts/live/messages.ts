@@ -134,8 +134,15 @@ export function errorInfo(
       return { key: 'liveErrEngineSoon', action: 'none' };
     case 'engine_not_allowed':
       return { key: 'liveErrEngineNotAllowed', action: 'none' };
+    case 'voice_clone_unavailable':
+      return { key: 'liveErrVoiceCloneUnavailable', action: 'none' };
+    case 'bad_voice_clone':
+      return { key: 'liveErrBadVoiceClone', action: 'none' };
     case 'rate_limited':
       return { key: 'liveErrRateLimited', action: 'retry' };
+    case 'enhanced_unavailable':
+    case 'not_enhanced':
+      return { key: 'liveErrEnhancedUnavailable', action: 'none' };
     case 'unauthorized':
     case 'bad_token':
     case 'token_expired':
@@ -193,6 +200,10 @@ export function noticeKey(code: string): string {
       return 'liveNoticeBilling';
     case 'server_busy':
       return 'liveNoticeBusy';
+    case 'translation_unavailable':
+      return 'liveNoticeEngine';
+    case 'text_too_long':
+      return 'liveNoticeTextTooLong';
     default:
       return 'talkErrorGeneric';
   }

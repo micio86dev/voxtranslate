@@ -79,6 +79,10 @@ export interface RoomEls {
   stage: HTMLElement;
   mine: HTMLElement;
   mineText: HTMLElement;
+  /** Enhanced: this phone is speaking a translation right now. Polite, hidden otherwise. */
+  speaking: HTMLElement;
+  /** Guest, Enhanced: what they hear is spoken in an imitation of the host's voice. */
+  voiceNote: HTMLElement;
   notice: HTMLElement;
   historyTitle: HTMLElement;
   history: HTMLElement;
@@ -210,6 +214,17 @@ export function buildRoom(doc: Doc, opts: { role: Role; maxGuests?: number }): R
   const mineText = el(doc, 'span', 'lc-mine-text');
   mine.append(mineLabel, ' ', mineText);
 
+  const speaking = i18n(doc, 'p', 'lc-speaking', 'talkStatusSpeaking');
+  speaking.id = 'lc-speaking';
+  speaking.setAttribute('role', 'status');
+  speaking.setAttribute('aria-live', 'polite');
+  speaking.hidden = true;
+
+  const voiceNote = i18n(doc, 'p', 'lc-banner', 'liveJoinNoticeVoiceClone');
+  voiceNote.id = 'lc-voice-note';
+  voiceNote.setAttribute('role', 'status');
+  voiceNote.hidden = true;
+
   const notice = el(doc, 'p', 'lc-banner');
   notice.id = 'lc-notice';
   notice.setAttribute('role', 'status');
@@ -292,6 +307,8 @@ export function buildRoom(doc: Doc, opts: { role: Role; maxGuests?: number }): R
     sameLang,
     stage,
     mine,
+    speaking,
+    voiceNote,
     notice,
     tierNotice,
     ...(credits ? [credits] : []),
@@ -337,7 +354,7 @@ export function buildRoom(doc: Doc, opts: { role: Role; maxGuests?: number }): R
 
   root.append(live, ended, problem);
   return {
-    root, live, status, statusText, tier, tierNotice, tierNoticeText, tierNoticeClose, partners, dirOut, dirIn, sameLang, announce, stage, mine, mineText,
+    root, live, status, statusText, tier, tierNotice, tierNoticeText, tierNoticeClose, partners, dirOut, dirIn, sameLang, announce, stage, mine, mineText, speaking, voiceNote,
     notice, historyTitle, history, credits, headphones, outputField, output, mute, muteLabel, end,
     confirm, confirmText, endYes, endNo, ended,
     endedText, endedAction, problem, problemText, retry, buy, home,
@@ -348,6 +365,16 @@ export function buildRoom(doc: Doc, opts: { role: Role; maxGuests?: number }): R
 export function renderTier(els: RoomEls, engine: string | undefined): void {
   els.tier.hidden = !engine;
   els.tier.textContent = engine ? fill(t('liveTierBadge'), { tier: tierLabel(engine) }) : '';
+}
+
+/** Guest: tell them the voice they hear imitates the host's, for as long as that is true. */
+export function renderVoiceNote(els: RoomEls, on: boolean): void {
+  els.voiceNote.hidden = !on;
+}
+
+/** Enhanced: show or hide the quiet "Speaking…" line while a translation is being spoken. */
+export function renderSpeaking(els: RoomEls, on: boolean): void {
+  els.speaking.hidden = !on;
 }
 
 const ACTIVE: ReadonlySet<Phase> = new Set<Phase>(['idle', 'requesting_mic', 'connecting', 'waiting_peer', 'live', 'reconnecting']);

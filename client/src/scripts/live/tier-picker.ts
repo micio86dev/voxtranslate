@@ -11,7 +11,7 @@
 
 import { t } from '../i18n';
 import { engineDescKey } from '../engines';
-import { fallbackEngines, needsMoreBalance, resolveTier, type LiveEngines } from './tiers';
+import { ENHANCED_ENGINE_ID, fallbackEngines, needsMoreBalance, resolveTier, type LiveEngines } from './tiers';
 import { fill, formatCredits } from './view';
 
 export interface TierPickerOptions {
@@ -22,6 +22,8 @@ export interface TierPickerOptions {
   balance: () => number | undefined;
   load: () => string | null;
   save: (id: string) => void;
+  /** The host picked another card (not on the first paint). */
+  onChange?: (id: string) => void;
 }
 
 export interface TierPicker {
@@ -70,12 +72,14 @@ export function mountTierPicker(root: HTMLElement, opts: TierPickerOptions): Tie
           if (!input.checked) return;
           selected = e.id;
           opts.save(e.id);
+          opts.onChange?.(e.id);
         });
 
         const body = doc.createElement('span');
         body.className = 'lc-tier-body';
         body.append(span(doc, 'lc-tier-name', e.display_name));
-        const descKey = engineDescKey(e.tier);
+        // The server's tier name is authoritative; the id is the fallback for Enhanced's wording.
+        const descKey = engineDescKey(e.tier) ?? (e.id === ENHANCED_ENGINE_ID ? engineDescKey('enhanced') : null);
         const desc = descKey ? t(descKey) : e.description;
         if (desc) body.append(span(doc, 'lc-tier-desc', desc));
         if (e.rate_per_minute > 0) {
@@ -109,6 +113,7 @@ export function mountTierPicker(root: HTMLElement, opts: TierPickerOptions): Tie
       // A click saves the choice, so the remembered one is always the latest one.
       selected = resolveTier(opts.load(), next, opts.balance());
       draw();
+      opts.onChange?.(selected);
     },
   };
 }

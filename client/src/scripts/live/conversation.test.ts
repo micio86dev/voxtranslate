@@ -1082,3 +1082,365 @@ describe('output device', () => {
     await expect(bad.convo.listOutputDevices()).resolves.toEqual([]);
   });
 });
+
+// --- Enhanced (Cartesia on the phone, spec 0121 S5) -------------------------------------------
+
+class FakeEnhanced {
+  opened = 0;
+  started = 0;
+  stopped = 0;
+  closed = 0;
+  muted: boolean[] = [];
+  gated: boolean[] = [];
+  spoken: Array<{ speakerId: string; segmentId: string; text: string; voiceId: string | null }> = [];
+  cancels = 0;
+  openResult = true;
+  constructor(readonly deps: import('./enhanced').EnhancedDeps) {
+    enhancedEngines.push(this);
+  }
+  async open() {
+    this.opened += 1;
+    return this.openResult;
+  }
+  start() {
+    this.started += 1;
+  }
+  stop() {
+    this.stopped += 1;
+  }
+  setMuted(m: boolean) {
+    this.muted.push(m);
+  }
+  setGated(g: boolean) {
+    this.gated.push(g);
+  }
+  speak(item: { speakerId: string; segmentId: string; text: string; voiceId: string | null }) {
+    this.spoken.push(item);
+  }
+  cancelSpeech() {
+    this.cancels += 1;
+  }
+  close() {
+    this.closed += 1;
+  }
+}
+let enhancedEngines: FakeEnhanced[] = [];
+
+function enhancedHarness(over: Record<string, unknown> = {}) {
+  const downgrades: Array<{ from: string; to: string; reason: string }> = [];
+  const speaking: boolean[] = [];
+  const token = vi.fn(async () => ({ ok: false as const, status: 500, code: 'x' }));
+  const h = harness({
+    engine: 'cartesia',
+    createEnhanced: (d: import('./enhanced').EnhancedDeps) => new FakeEnhanced(d),
+    enhancedSessionImpl: token,
+    isRestricted: async () => false,
+    onEngineDowngraded: (c: { from: string; to: string; reason: string }) => downgrades.push(c),
+    onSpeaking: (s: boolean) => speaking.push(s),
+    ...over,
+  });
+  return { ...h, downgrades, speaking, token };
+}
+
+async function enhancedConnected(over: Record<string, unknown> = {}) {
+  const h = enhancedHarness(over);
+  await h.convo.start();
+  const sock = sockets[sockets.length - 1];
+  sock.open();
+  await flush();
+  return { ...h, sock, engine: enhancedEngines[enhancedEngines.length - 1] };
+}
+
+describe('Enhanced mode', () => {
+  beforeEach(() => {
+    enhancedEngines = [];
+  });
+
+  it('runs the Enhanced engine instead of PCM capture, and does not send `start` itself', async () => {
+    const { sock, engine } = await enhancedConnected();
+    expect(enhancedEngines).toHaveLength(1);
+    expect(captures).toHaveLength(0);
+    expect(engine.opened).toBe(1);
+    expect(sock.controls()).not.toContainEqual({ type: 'start' });
+    // Once the token is in, recognition starts (the engine sends `start` when its socket is up).
+    expect(engine.started).toBe(1);
+  });
+
+  it('hands the engine the live token fetch, my language and the stream; its control frames go to the live socket', async () => {
+    const { sock, engine, token, media } = await enhancedConnected();
+    expect(engine.deps.stream).toBe(media.stream);
+    expect(engine.deps.myLang).toBe('it');
+    await engine.deps.fetchToken();
+    expect(token).toHaveBeenCalledWith('s1', 'LIVE-TOKEN');
+    engine.deps.control({ type: 'translate_text', segment_id: 'x', text: 'ciao', final: false });
+    expect(sock.controls()).toContainEqual({ type: 'translate_text', segment_id: 'x', text: 'ciao', final: false });
+  });
+
+  it('does not start recognising while muted, and unmuting starts it', async () => {
+    const h = enhancedHarness();
+    h.convo.setMuted(true);
+    await h.convo.start();
+    sockets[sockets.length - 1].open();
+    await flush();
+    const engine = enhancedEngines[0];
+    expect(engine.started).toBe(0);
+    expect(sockets[0].controls()).toContainEqual({ type: 'mute_audio', muted: true });
+    h.convo.setMuted(false);
+    expect(engine.muted).toEqual([false]);
+  });
+
+  it('mute is told to the server and to the engine', async () => {
+    const { convo, sock, engine } = await enhancedConnected();
+    convo.setMuted(true);
+    expect(sock.controls()).toContainEqual({ type: 'mute_audio', muted: true });
+    expect(engine.muted).toEqual([true]);
+  });
+
+  it('shows my own words from my recogniser: interim, then a settled sentence that goes to the history next', async () => {
+    const h = await enhancedConnected();
+    h.engine.deps.onMine('Buon', false);
+    expect(h.lastCaptions().mine).toMatchObject({ text: 'Buon', settled: false, lang: 'it' });
+    h.engine.deps.onMine('Buongiorno a tutti', true);
+    expect(h.lastCaptions().mine).toMatchObject({ text: 'Buongiorno a tutti', settled: true });
+    h.engine.deps.onMine('Ancora', false);
+    expect(h.lastCaptions().history.map((x) => [x.who, x.original, x.translated])).toEqual([['me', 'Buongiorno a tutti', '']]);
+  });
+
+  it('speaks what the server says to speak, with the voice it names (or none)', async () => {
+    const { sock, engine } = await enhancedConnected();
+    sock.deliver({ type: 'enhanced_speak', speaker_id: 'peer-b', segment_id: 'seg1', lang: 'it', text: 'Ciao a tutti', voice_id: 'HOST-VOICE' });
+    sock.deliver({ type: 'enhanced_speak', speaker_id: 'peer-b', segment_id: 'seg2', lang: 'it', text: 'Seconda', voice_id: null });
+    expect(engine.spoken).toEqual([
+      { speakerId: 'peer-b', segmentId: 'seg1', text: 'Ciao a tutti', voiceId: 'HOST-VOICE' },
+      { speakerId: 'peer-b', segmentId: 'seg2', text: 'Seconda', voiceId: null },
+    ]);
+  });
+
+  it('ignores an enhanced_speak of my own, one without text, and one on a Standard conversation', async () => {
+    const { sock, engine } = await enhancedConnected();
+    sock.deliver({ type: 'enhanced_speak', speaker_id: 'peer-a', segment_id: 's', lang: 'it', text: 'io', voice_id: null });
+    sock.deliver({ type: 'enhanced_speak', speaker_id: 'peer-b', segment_id: 's', lang: 'it', voice_id: null });
+    expect(engine.spoken).toEqual([]);
+    const std = await connect();
+    std.sock.deliver({ type: 'enhanced_speak', speaker_id: 'peer-b', segment_id: 's', lang: 'it', text: 'x', voice_id: null });
+    expect(enhancedEngines).toHaveLength(1);
+  });
+
+  it('the echo guard gates the recogniser while a translation plays, shows "speaking", and barge-in cancels the queue', async () => {
+    const h = await enhancedConnected();
+    h.playback.listener?.(true);
+    expect(h.engine.gated).toEqual([true]);
+    expect(h.speaking).toEqual([true]);
+    h.playback.listener?.(false);
+    expect(h.engine.gated).toEqual([true, false]);
+    expect(h.speaking).toEqual([true, false]);
+  });
+
+  it('talking over the translation (barge-in) drops what is waiting to be spoken', async () => {
+    let t = 0;
+    const h = await enhancedConnected({ now: () => t });
+    h.playback.listener?.(true);
+    const guard = (h.convo as unknown as { guard: { onLevel: (l: number) => void } }).guard;
+    guard.onLevel(0.5);
+    t = 400;
+    guard.onLevel(0.5);
+    expect(h.engine.cancels).toBe(1);
+    expect(h.playback.resets).toBe(1);
+  });
+
+  it('a gated guard before the engine exists is applied to it', async () => {
+    const h = enhancedHarness();
+    await h.convo.start();
+    h.playback.listener?.(true);
+    sockets[0].open();
+    await flush();
+    expect(enhancedEngines[0].gated).toContain(true);
+  });
+
+  it('"speaking" is Enhanced-only: a Standard conversation never reports it', async () => {
+    const speaking: boolean[] = [];
+    const h = await connect({ onSpeaking: (s: boolean) => speaking.push(s) });
+    h.playback.listener?.(true);
+    expect(speaking).toEqual([]);
+  });
+
+  describe('falling back', () => {
+    it.each(['rate_limited', 'enhanced_unavailable', 'insufficient_balance', 'cartesia_unreachable', 'restricted_network'])(
+      'sends enhanced_fallback{%s} and waits for the server before changing path',
+      async (reason) => {
+        const { sock, engine } = await enhancedConnected();
+        engine.deps.onFailure({ kind: 'fallback', reason });
+        expect(sock.controls()).toContainEqual({ type: 'enhanced_fallback', reason });
+        expect(captures).toHaveLength(0); // still no PCM: that is the server's call
+      },
+    );
+
+    it('engine_downgraded then closes Cartesia, starts PCM exactly like a Standard conversation and says so', async () => {
+      const { sock, engine, downgrades, convo, speaking } = await enhancedConnected();
+      sock.deliver({ type: 'engine_downgraded', peer_id: 'peer-a', from: 'cartesia', to: 'standard', reason: 'enhanced_unavailable' });
+      expect(engine.closed).toBe(1);
+      expect(downgrades).toEqual([{ from: 'cartesia', to: 'standard', reason: 'enhanced_unavailable' }]);
+      expect(captures).toHaveLength(1);
+      expect(captures[0].started).toBe(1);
+      expect(sock.controls().filter((c) => (c as { type: string }).type === 'start')).toHaveLength(1);
+      expect(speaking.at(-1)).toBe(false);
+      expect(JSON.parse(sessionStorage.getItem(STORAGE_KEY) as string).engine).toBe('standard');
+      // From here on enhanced_speak means nothing.
+      sock.deliver({ type: 'enhanced_speak', speaker_id: 'peer-b', segment_id: 's', lang: 'it', text: 'x', voice_id: null });
+      expect(enhancedEngines).toHaveLength(1);
+      convo.setMuted(true);
+      expect(captures[0].muted).toEqual([true]);
+    });
+
+    it('a downgrade that finds the engine already closed by its own failure still switches to PCM', async () => {
+      const { sock, engine } = await enhancedConnected();
+      engine.deps.onFailure({ kind: 'fallback', reason: 'rate_limited' });
+      sock.deliver({ type: 'engine_downgraded', from: 'cartesia', to: 'standard', reason: 'enhanced_unavailable' });
+      expect(captures).toHaveLength(1);
+    });
+
+    it('a muted phone does not start PCM streaming after the downgrade', async () => {
+      const { sock, convo } = await enhancedConnected();
+      convo.setMuted(true);
+      sock.deliver({ type: 'engine_downgraded', from: 'cartesia', to: 'standard', reason: 'enhanced_unavailable' });
+      expect(captures).toHaveLength(1);
+      expect(captures[0].started).toBe(0);
+      expect(sock.controls().filter((c) => (c as { type: string }).type === 'start')).toHaveLength(0);
+    });
+
+    it('not_enhanced (a downgrade this phone missed) continues as Standard at once', async () => {
+      const { sock, engine, downgrades } = await enhancedConnected();
+      engine.deps.onFailure({ kind: 'not_enhanced' });
+      expect(captures).toHaveLength(1);
+      expect(captures[0].started).toBe(1);
+      expect(downgrades).toEqual([{ from: 'cartesia', to: 'standard', reason: 'not_enhanced' }]);
+      expect(sock.controls().filter((c) => (c as { type: string }).type === 'enhanced_fallback')).toEqual([]);
+    });
+
+    it('a gone seat is a notice, and the live socket decides the rest', async () => {
+      const { engine, notices, last } = await enhancedConnected();
+      engine.deps.onFailure({ kind: 'gone', code: 'session_ended' });
+      expect(notices).toEqual(['enhanced_auth']);
+      expect(last().phase).not.toBe('failed');
+    });
+
+    it('a failure from an engine that has been replaced is ignored', async () => {
+      const { sock, engine } = await enhancedConnected();
+      sock.drop();
+      engine.deps.onFailure({ kind: 'fallback', reason: 'rate_limited' });
+      expect(sock.controls().filter((c) => (c as { type: string }).type === 'enhanced_fallback')).toEqual([]);
+    });
+
+    it('a Premium-at-capacity downgrade on a Standard conversation touches nothing in Enhanced terms', async () => {
+      const h = await connect({ engine: 'gemini_live_translate' });
+      h.sock.deliver({ type: 'engine_downgraded', from: 'gemini_live_translate', to: 'standard', reason: 'premium_at_capacity' });
+      expect(captures).toHaveLength(1);
+      expect(enhancedEngines).toHaveLength(0);
+    });
+
+    it('a token refused when the live socket is gone just waits for the reconnect', async () => {
+      const { sock, engine } = await enhancedConnected();
+      sock.readyState = 3;
+      engine.deps.onFailure({ kind: 'not_enhanced' });
+      expect(captures).toHaveLength(0); // PCM attaches on the next open
+    });
+  });
+
+  it('enhanced_not_active re-opens the meter, but not more than once every few seconds, and never while muted', async () => {
+    let t = 0;
+    const { sock, convo } = await enhancedConnected({ now: () => t });
+    sock.deliver({ type: 'error', code: 'enhanced_not_active' });
+    sock.deliver({ type: 'error', code: 'enhanced_not_active' });
+    expect(sock.controls().filter((c) => (c as { type: string }).type === 'start')).toHaveLength(1);
+    t = 4000;
+    sock.deliver({ type: 'error', code: 'enhanced_not_active' });
+    expect(sock.controls().filter((c) => (c as { type: string }).type === 'start')).toHaveLength(2);
+    convo.setMuted(true);
+    t = 9000;
+    sock.deliver({ type: 'error', code: 'enhanced_not_active' });
+    expect(sock.controls().filter((c) => (c as { type: string }).type === 'start')).toHaveLength(2);
+  });
+
+  it('translation_unavailable and text_too_long reach the view as notices', async () => {
+    const { sock, notices } = await enhancedConnected();
+    sock.deliver({ type: 'error', code: 'translation_unavailable' });
+    sock.deliver({ type: 'error', code: 'text_too_long' });
+    expect(notices).toEqual(['translation_unavailable', 'text_too_long']);
+  });
+
+  it('a peer joining does not re-send `start` (the engine owns the meter)', async () => {
+    const { sock } = await enhancedConnected();
+    sock.deliver({ type: 'peer_joined', ...PARTNER_PEER });
+    expect(sock.controls().filter((c) => (c as { type: string }).type === 'start')).toHaveLength(0);
+  });
+
+  describe('cleanup', () => {
+    it('end() closes the engine', async () => {
+      const { convo, engine } = await enhancedConnected();
+      convo.end();
+      expect(engine.closed).toBeGreaterThanOrEqual(1);
+      expect(engine.stopped).toBeGreaterThanOrEqual(1);
+    });
+
+    it('release() closes the engine and keeps the stored session', async () => {
+      const { convo, engine } = await enhancedConnected();
+      convo.release();
+      expect(engine.closed).toBeGreaterThanOrEqual(1);
+      expect(sessionStorage.getItem(STORAGE_KEY)).not.toBeNull();
+    });
+
+    it('a session that ends closes the engine', async () => {
+      const { sock, engine } = await enhancedConnected();
+      sock.deliver({ type: 'session_state', status: 'ended', reason: 'ended_by_host' });
+      expect(engine.closed).toBeGreaterThanOrEqual(1);
+    });
+
+    it('a dropped socket closes the engine, and the reconnect builds a fresh one (a new token)', async () => {
+      const { sock, engine, probe } = await enhancedConnected();
+      sock.drop();
+      expect(engine.closed).toBe(1);
+      fireTimer();
+      await flush();
+      expect(probe).toHaveBeenCalled();
+      sockets[sockets.length - 1].open();
+      await flush();
+      expect(enhancedEngines).toHaveLength(2);
+      expect(enhancedEngines[1].opened).toBe(1);
+    });
+
+    it('a reconnect adopts the tier the server reports now (a fallback this phone missed)', async () => {
+      const probe = vi.fn(async (): Promise<Probe> => ({
+        ok: true,
+        data: { session: { id: 's1', status: 'active', host_lang: 'it', created_at: '', expires_at: '', participants: [], engine: 'standard' }, you: { peer_id: 'peer-a', role: 'host' } },
+      }));
+      const { sock } = await enhancedConnected({ getSessionImpl: probe });
+      sock.drop();
+      fireTimer();
+      await flush();
+      sockets[sockets.length - 1].open();
+      await flush();
+      expect(enhancedEngines).toHaveLength(1); // no new Enhanced engine
+      expect(captures).toHaveLength(1); // PCM instead
+    });
+
+    it('an engine whose token failed does not start recognising', async () => {
+      const h = enhancedHarness();
+      await h.convo.start();
+      // The next engine to be made reports a failed open.
+      const orig = h.convo as unknown as { opts: { createEnhanced: (d: import('./enhanced').EnhancedDeps) => FakeEnhanced } };
+      orig.opts.createEnhanced = (d) => {
+        const e = new FakeEnhanced(d);
+        e.openResult = false;
+        return e;
+      };
+      sockets[0].open();
+      await flush();
+      expect(enhancedEngines[0].started).toBe(0);
+    });
+  });
+
+  it('the stored session keeps the voice-clone flag across the conversation\'s own saves', async () => {
+    await enhancedConnected({ voiceClone: true });
+    expect(JSON.parse(sessionStorage.getItem(STORAGE_KEY) as string)).toMatchObject({ engine: 'cartesia', voiceClone: true });
+  });
+});

@@ -4,7 +4,10 @@
 // preference is re-validated against it, and the names a room shows are derived. No DOM, no
 // network: `tier-picker.ts` draws, `api.ts` fetches.
 
-import { DEFAULT_ENGINE_ID } from '../engines';
+import { DEFAULT_ENGINE_ID, selectableEngines, type EngineInfo } from '../engines';
+
+/** The Enhanced tier (Cartesia): the phone talks to Cartesia directly. */
+export const ENHANCED_ENGINE_ID = 'cartesia';
 
 /** One tier as `GET /api/live/engines` lists it. `rate_per_minute` is PER LANGUAGE STREAM. */
 export interface LiveEngine {
@@ -19,6 +22,15 @@ export interface LiveEngine {
   available: boolean;
   scales_per_language: boolean;
   client_direct: boolean;
+  /** Enhanced only: whether the host can have the translations spoken in their cloned voice. */
+  voice_clone?: VoiceCloneInfo;
+}
+
+/** `available` is true only when cloning is on AND the account already has a clone. */
+export interface VoiceCloneInfo {
+  available: boolean;
+  cloning_enabled: boolean;
+  has_clone: boolean;
 }
 
 export interface LiveEngines {
@@ -29,6 +41,7 @@ export interface LiveEngines {
 /** The names shown in a room, where the picker's list is not at hand (a guest has no account). */
 const LABELS: Record<string, string> = {
   [DEFAULT_ENGINE_ID]: 'Standard',
+  [ENHANCED_ENGINE_ID]: 'Enhanced',
   gemini_live_translate: 'Premium',
 };
 
@@ -60,6 +73,33 @@ function num(v: unknown): number {
   return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : 0;
 }
 
+function parseVoiceClone(raw: unknown): { voice_clone?: VoiceCloneInfo } {
+  if (!raw || typeof raw !== 'object') return {};
+  const v = raw as Record<string, unknown>;
+  return {
+    voice_clone: {
+      available: v.available === true,
+      cloning_enabled: v.cloning_enabled === true,
+      has_clone: v.has_clone === true,
+    },
+  };
+}
+
+/**
+ * The tiers a phone can actually use. Same rule as Meet's picker (`selectableEngines`): behind
+ * the Great Firewall a client-direct tier cannot reach its provider, so it is not offered.
+ * The default is re-pointed at Standard if it was the one dropped.
+ */
+export function selectableTiers(list: LiveEngines, restricted: boolean): LiveEngines {
+  if (!restricted) return list;
+  const asEngines = list.engines.map(
+    (e) => ({ ...e, capabilities: { client_direct: e.client_direct } }) as unknown as EngineInfo,
+  );
+  const keep = new Set(selectableEngines(asEngines, true).map((e) => e.id));
+  const engines = list.engines.filter((e) => keep.has(e.id));
+  return { default: engines.some((e) => e.id === list.default) ? list.default : DEFAULT_ENGINE_ID, engines };
+}
+
 /** A usable list, or null. A malformed entry is dropped rather than trusted. */
 export function parseEngines(data: unknown): LiveEngines | null {
   if (!data || typeof data !== 'object') return null;
@@ -80,6 +120,7 @@ export function parseEngines(data: unknown): LiveEngines | null {
       available: e.available !== false,
       scales_per_language: e.scales_per_language === true,
       client_direct: e.client_direct === true,
+      ...parseVoiceClone(e.voice_clone),
     });
   }
   if (engines.length === 0) return null;

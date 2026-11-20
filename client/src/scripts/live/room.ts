@@ -25,11 +25,13 @@ import {
   renderOutputOptions,
   renderPartners,
   renderPhase,
+  renderSpeaking,
   renderTier,
+  renderVoiceNote,
   type RoomEls,
 } from './view';
 import type { LiveContext } from './session-machine';
-import { tierLabel } from './tiers';
+import { ENHANCED_ENGINE_ID, tierLabel } from './tiers';
 
 /** The slice of `LiveConversation` the controller drives; tests supply a fake. */
 export interface ConversationLike {
@@ -114,6 +116,10 @@ export function mountRoom(opts: RoomOptions): RoomHandle {
   // The tier the room runs on now: what it was created with, until the server moves it.
   let engineNow = session.engine;
   renderTier(els, engineNow);
+  // Only a guest needs telling (the host chose it), and only while Enhanced is what they hear.
+  const voiceFor = (engine: string | undefined): boolean =>
+    role === 'guest' && !!session.voiceClone && engine === ENHANCED_ENGINE_ID;
+  renderVoiceNote(els, voiceFor(engineNow));
   els.tierNoticeClose.addEventListener('click', () => {
     els.tierNotice.hidden = true;
   });
@@ -162,6 +168,7 @@ export function mountRoom(opts: RoomOptions): RoomHandle {
       inviteUrl: session.inviteUrl,
       maxGuests: session.maxGuests,
       engine: session.engine,
+      voiceClone: session.voiceClone,
       onState,
       onCaptions,
       onBalance: (b) => {
@@ -184,12 +191,22 @@ export function mountRoom(opts: RoomOptions): RoomHandle {
         els.notice.textContent = t(noticeKey(code));
         els.notice.hidden = false;
       },
-      onEngineDowngraded: ({ from, to }) => {
+      onSpeaking: (on) => renderSpeaking(els, on),
+      onEngineDowngraded: ({ from, to, reason }) => {
         const was = from || engineNow || '';
         engineNow = to;
         renderTier(els, to);
-        // Money is the host's business: a guest is told the tier, never the billing.
-        const key = role === 'host' ? 'liveTierDowngraded' : 'liveTierDowngradedGuest';
+        renderVoiceNote(els, voiceFor(to));
+        // Money is the host's business: a guest is told the tier, never the billing. "Busy" is
+        // true of a tier at capacity, not of Enhanced failing on a phone: that has its own words.
+        const enhanced = reason === 'enhanced_unavailable' || reason === 'not_enhanced';
+        const key = enhanced
+          ? role === 'host'
+            ? 'liveTierDowngradedEnhanced'
+            : 'liveTierDowngradedEnhancedGuest'
+          : role === 'host'
+            ? 'liveTierDowngraded'
+            : 'liveTierDowngradedGuest';
         els.tierNoticeText.textContent = fill(t(key), { from: tierLabel(was), to: tierLabel(to) });
         els.tierNotice.hidden = false;
       },

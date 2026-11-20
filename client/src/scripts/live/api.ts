@@ -14,6 +14,7 @@
 // headers on a WebSocket), see `conversation.ts`.
 
 import { authHeaders, HTTP_BASE } from '../auth';
+import type { EnhancedSessionResponse } from '../api';
 import { DEFAULT_ENGINE_ID } from '../engines';
 
 export type ApiResult<T> = { ok: true; data: T } | { ok: false; status: number; code: string };
@@ -30,6 +31,8 @@ export interface CreatedSession {
   max_guests?: number;
   /** The tier the conversation runs on (`standard` after a fallback). Absent on an older server. */
   engine?: string;
+  /** The host's cloned voice speaks the translations on the guests' phones. Never the voice id. */
+  voice_clone?: boolean;
 }
 
 export interface JoinedSession {
@@ -42,6 +45,8 @@ export interface JoinedSession {
   max_guests?: number;
   /** The tier the conversation runs on. Absent on an older server = standard. */
   engine?: string;
+  /** The host opted in: what this guest hears is spoken in the host's cloned voice. */
+  voice_clone?: boolean;
 }
 
 export interface SessionParticipant {
@@ -61,6 +66,8 @@ export interface SessionInfo {
     max_guests?: number;
     /** The tier the conversation runs on, `standard` after a fallback. */
     engine?: string;
+    /** The host's cloned voice speaks the translations (Enhanced only). */
+    voice_clone?: boolean;
     /** Every seat ever taken (host first), not who is connected right now. */
     participants: SessionParticipant[];
   };
@@ -139,7 +146,7 @@ const JSON_HEADERS = { 'Content-Type': 'application/json' };
 
 /** Create a conversation as its (paying) owner. Needs the account JWT. */
 export function createSession(
-  args: { lang: string; saveTranscript: boolean; maxGuests?: number; engine?: string },
+  args: { lang: string; saveTranscript: boolean; maxGuests?: number; engine?: string; voiceClone?: boolean },
   fetchImpl: Fetch = fetch,
 ): Promise<ApiResult<CreatedSession>> {
   return call<CreatedSession>(fetchImpl, '/api/live/sessions', {
@@ -152,6 +159,8 @@ export function createSession(
       ...(args.maxGuests === undefined ? {} : { max_guests: args.maxGuests }),
       // Standard is the server's default: only another tier travels in the body.
       ...(args.engine && args.engine !== DEFAULT_ENGINE_ID ? { engine: args.engine } : {}),
+      // Only ever sent as an explicit, informed opt-in (Enhanced + the consent checkbox).
+      ...(args.voiceClone ? { voice_clone: true } : {}),
     }),
   });
 }
@@ -261,4 +270,21 @@ export function answerSession(
     headers: { ...JSON_HEADERS, ...authHeaders() },
     body: JSON.stringify({ lang }),
   });
+}
+
+/**
+ * The Cartesia token for THIS seat (host or guest), authorised by the live token: the Enhanced
+ * tier speaks to Cartesia directly from the phone. Same answer shape as Meet's. The token is
+ * a credential: it goes into the Cartesia socket URL and nowhere else (never logged).
+ */
+export function enhancedSession(
+  sessionId: string,
+  liveToken: string,
+  fetchImpl: Fetch = fetch,
+): Promise<ApiResult<EnhancedSessionResponse>> {
+  return call<EnhancedSessionResponse>(
+    fetchImpl,
+    `/api/live/sessions/${encodeURIComponent(sessionId)}/enhanced/session`,
+    { method: 'POST', headers: { Authorization: `Bearer ${liveToken}` } },
+  );
 }

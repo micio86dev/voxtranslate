@@ -1010,5 +1010,14 @@
   "liveErrEngineNotAvailable": "That translation quality is not available right now. Choose another one.",
   "liveErrEngineSoon": "That translation quality is not available yet. Choose another one.",
   "liveErrEngineNotAllowed": "This kind of conversation uses Standard translation only.",
-  "liveErrBusyTier": "That quality has no room right now. Try Standard instead."
+  "liveErrBusyTier": "That quality has no room right now. Try Standard instead.",
+  "liveVoiceClone": "Speak with my cloned voice",
+  "liveVoiceCloneConsent": "I agree that my voice sample is used to speak the translations on my guests' phones, for this conversation only. My guests' phones receive the identifier of my cloned voice.",
+  "liveJoinNoticeVoiceClone": "The host chose to have the translations spoken in an imitation of their own voice, so what you hear sounds like them.",
+  "liveErrVoiceCloneUnavailable": "Your cloned voice can't be used for this conversation. Turn the option off, or choose Enhanced once your voice is prepared.",
+  "liveErrBadVoiceClone": "The voice option wasn't valid. Turn it off and try again.",
+  "liveErrEnhancedUnavailable": "Enhanced translation isn't available right now. The conversation continues on Standard.",
+  "liveTierDowngradedEnhanced": "Enhanced isn't available right now. Continuing on {to}, billed at the {to} rate.",
+  "liveTierDowngradedEnhancedGuest": "Enhanced isn't available right now, so this conversation continues on {to}.",
+  "liveNoticeTextTooLong": "That was too long to translate in one go. Try shorter sentences."
 }

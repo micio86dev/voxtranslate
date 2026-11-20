@@ -28,7 +28,7 @@ import { type LangMeta, LANGUAGES, langMeta } from './langmap';
 // In-call modules are lazy-loaded at pre-join (spec 0105) — keep only their TYPES here so the
 // landing entry chunk doesn't statically pull them in; the runtime values come from the
 // `CallModules` namespaces returned by `loadCallModules()`.
-import type { CartesiaManager, CartesiaSession } from './cartesia';
+import type { CartesiaManager } from './cartesia';
 import { type CallModules, loadCallModules } from './call-modules';
 import { loadRemoteI18n } from './content';
 import { setupScheduling } from './meetings';
@@ -66,6 +66,7 @@ import { ttsManager } from './tts/manager';
 import { registerVoxIfInstalled } from './tts/register';
 import type { ChatManager, ChatPayload } from './chat';
 import { CHAT_MAX_HEIGHT, counterLabel, counterState, insertAt, recTimeLabel, resizeBox } from './chat-input';
+import { recordVoiceSample } from './voice-sample';
 import { checkUploadFile, cloneVoice, fetchAiPricing, fetchEnhancedSession, fileUploadEnabled, generateAiQuiz, saveQuizHistory, sendInvites, UPLOAD_ACCEPT, UPLOAD_MAX_BYTES, uploadChatFile } from './api';
 import { buildInviteLink, MAX_INVITE_EMAILS, parseRoomParam, validateInviteEmails } from './invite';
 import {
@@ -737,19 +738,7 @@ function ensureCartesiaManager(): CartesiaManager {
     cartesiaManager = new callMods!.cartesia.CartesiaManager({
       fetchSession: async () => {
         const s = await fetchEnhancedSession();
-        if (!s) return null;
-        return {
-          token: s.token,
-          expiresAt: s.expires_at,
-          cartesiaVersion: s.cartesia_version,
-          sttEndpoint: s.stt.endpoint,
-          sttModel: s.stt.model,
-          sttModelsByLang: s.stt.models_by_lang ?? {},
-          ttsEndpoint: s.tts.endpoint,
-          ttsModel: s.tts.model,
-          voiceCloningEnabled: s.voice_cloning_enabled,
-          defaultVoiceId: s.default_voice_id ?? undefined,
-        } satisfies CartesiaSession;
+        return s ? callMods!.cartesia.toCartesiaSession(s) : null;
       },
       // Cartesia does STT + TTS but not translation — route each finalized segment through
       // the server's Groq translator over the room WS (spec 0108).
@@ -874,71 +863,6 @@ function setVoicePrepState(s: VoicePrepState): void {
   prejoinStatus.classList.remove('error');
   prejoinStatus.textContent =
     s === 'recording' ? t('voicePrepRecording') : s === 'saving' ? t('voicePrepSaving') : '';
-}
-
-/** Record a short mic sample, resolving once ≥3 s of actual speech is captured (energy
- *  threshold, not raw time), or null if too little speech by the time ceiling. */
-function recordVoiceSample(
-  stream: MediaStream,
-  onProgress?: (fraction: number) => void,
-): Promise<Blob | null> {
-  return new Promise((resolve) => {
-    let recorder: MediaRecorder;
-    try {
-      const mime = ['audio/webm;codecs=opus', 'audio/mp4', 'audio/webm'].find((ty) =>
-        MediaRecorder.isTypeSupported?.(ty),
-      );
-      recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
-    } catch {
-      resolve(null);
-      return;
-    }
-    const chunks: BlobPart[] = [];
-    recorder.ondataavailable = (e) => {
-      if (e.data.size) chunks.push(e.data);
-    };
-    const Ctx =
-      window.AudioContext ??
-      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-    const ctx = new Ctx();
-    const analyser = ctx.createAnalyser();
-    analyser.fftSize = 512;
-    ctx.createMediaStreamSource(stream).connect(analyser);
-    const buf = new Float32Array(analyser.fftSize);
-    let speechMs = 0;
-    let elapsedMs = 0;
-    const TICK = 100;
-    const SPEECH_RMS = 0.02; // energy floor that counts as speech (not room noise)
-    const MIN_SPEECH_MS = 3000; // Cartesia IVC wants ≥3 s of actual speech
-    const MAX_MS = 8000; // hard ceiling so we never hold the join hostage
-    recorder.onstop = () => {
-      const type = recorder.mimeType || 'audio/webm';
-      resolve(speechMs >= MIN_SPEECH_MS && chunks.length ? new Blob(chunks, { type }) : null);
-    };
-    const timer = setInterval(() => {
-      analyser.getFloatTimeDomainData(buf);
-      let sum = 0;
-      for (const v of buf) sum += v * v;
-      if (Math.sqrt(sum / buf.length) > SPEECH_RMS) speechMs += TICK;
-      onProgress?.(Math.min(1, speechMs / MIN_SPEECH_MS));
-      elapsedMs += TICK;
-      if (speechMs >= MIN_SPEECH_MS + 500 || elapsedMs >= MAX_MS) {
-        clearInterval(timer);
-        void ctx.close().catch(() => {});
-        try {
-          recorder.stop();
-        } catch {
-          resolve(null);
-        }
-      }
-    }, TICK);
-    try {
-      recorder.start();
-    } catch {
-      clearInterval(timer);
-      resolve(null);
-    }
-  });
 }
 
 /** Show the voice-prep panel for eligible users (signed-in, cloning on, client-direct engine)

@@ -326,3 +326,35 @@ describe('the invitation code is a secret', () => {
     expect(JSON.stringify(rooms)).not.toContain(CODE);
   });
 });
+
+describe('Enhanced with the host\'s voice', () => {
+  const joinWith = async (data: Record<string, unknown>) => {
+    api.joinSession.mockResolvedValue({ ok: true, data: { ...JOINED, ...data } });
+    await mountLiveGuest();
+    (document.getElementById('lg-consent') as HTMLInputElement).checked = true;
+    $('lg-join-btn').click();
+    await flush();
+  };
+
+  it('keeps what the join response says about the host voice for the room and for a reload', async () => {
+    await joinWith({ engine: 'cartesia', voice_clone: true });
+    expect(rooms[0].session).toMatchObject({ engine: 'cartesia', voiceClone: true });
+    expect(JSON.parse(sessionStorage.getItem(STORAGE_KEY) ?? '{}')).toMatchObject({ engine: 'cartesia', voiceClone: true });
+  });
+
+  it('stores nothing about the voice when the host did not opt in', async () => {
+    await joinWith({ engine: 'cartesia', voice_clone: false });
+    expect(rooms[0].session).not.toHaveProperty('voiceClone');
+  });
+
+  it('adds no consent gate beyond the existing notice: the same single checkbox joins', async () => {
+    expect(document.querySelectorAll('#lg-join input[type="checkbox"]')).toHaveLength(1);
+  });
+
+  it('a reload takes the voice flag from the server', async () => {
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ sessionId: 's1', token: 'T', role: 'guest', myLang: 'es', myPeerId: 'g', wsPath: '/ws/live', engine: 'cartesia' }));
+    api.getSession.mockResolvedValue({ ok: true, data: { session: { status: 'active', engine: 'cartesia', voice_clone: true }, you: { role: 'guest' } } });
+    await mountLiveGuest();
+    expect(rooms[0].session).toMatchObject({ engine: 'cartesia', voiceClone: true });
+  });
+});

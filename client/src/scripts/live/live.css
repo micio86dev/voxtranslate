@@ -72,6 +72,14 @@
 .lc-check input { width: 20px; height: 20px; margin: 0; flex: none; }
 .lc-hint { display: block; color: var(--muted); font-size: 0.78rem; margin-top: 2px; }
 
+/* Enhanced: the host's cloned voice (consent checkbox) and the inline "prepare my voice" panel. */
+#lh-voice-field[hidden],
+.lc-voiceprep[hidden],
+.lc-meter[hidden] { display: none; }
+.lc-voice .lc-hint { color: var(--text); font-size: 0.85rem; line-height: 1.45; }
+.lc-voiceprep { display: flex; flex-direction: column; gap: 0.5rem; }
+.lc-meter { width: 100%; height: 8px; accent-color: var(--text); }
+
 /* --- language picker ----------------------------------------------------- */
 .lc-lang-trigger {
   width: 100%;
@@ -183,6 +191,8 @@
 /* --muted on the tinted checked background is ~3.3:1 (AA needs 4.5): say it in the text colour there. */
 .lc-tier:has(input:checked) .lc-tier-desc,
 .lc-tier:has(input:checked) .lc-tier-note { color: var(--text); }
+.lc-speaking { margin: 0; text-align: center; color: var(--muted); font-size: 0.9rem; }
+.lc-speaking[hidden] { display: none; }
 .lc-tier-badge { color: var(--text); font-weight: var(--font-weight-semibold); }
 .lc-tier-badge::before { content: '·'; margin-inline-end: 0.5rem; color: var(--muted); }
 .lc-tier-notice { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 0.5rem 0.8rem; }

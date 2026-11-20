@@ -7,6 +7,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   accumulate,
   CartesiaManager,
+  closeSttGraph,
+  openSttGraph,
+  parseTtsFrame,
+  toCartesiaSession,
+  ttsRequest,
   type CartesiaManagerOptions,
   type CartesiaSession,
   IDLE_FLUSH_MS,
@@ -824,5 +829,104 @@ describe('CartesiaManager', () => {
     m.deactivate(); // also closes the shared TTS socket
     expect(tts.readyState).toBe(3);
     tts.onclose?.({ code: 1000 }); // stale close after teardown → ignored
+  });
+});
+
+// ---- Shared with Live Connect (spec 0121 S5): the pieces Meet's manager is built from ----------
+
+describe('toCartesiaSession', () => {
+  it('maps the server answer exactly as Meet\'s fetchSession always did', () => {
+    const out = toCartesiaSession({
+      token: 'T',
+      expires_at: 123,
+      cartesia_version: '2026-03-01',
+      stt: { endpoint: 'wss://s', model: 'ink-whisper', models_by_lang: { en: 'ink-2' } },
+      tts: { endpoint: 'wss://t', model: 'sonic-3.5' },
+      voice_cloning_enabled: true,
+      default_voice_id: 'D',
+    });
+    expect(out).toEqual({
+      token: 'T',
+      expiresAt: 123,
+      cartesiaVersion: '2026-03-01',
+      sttEndpoint: 'wss://s',
+      sttModel: 'ink-whisper',
+      sttModelsByLang: { en: 'ink-2' },
+      ttsEndpoint: 'wss://t',
+      ttsModel: 'sonic-3.5',
+      voiceCloningEnabled: true,
+      defaultVoiceId: 'D',
+    });
+  });
+
+  it('defaults the optional parts: no per-language models, no default voice', () => {
+    const out = toCartesiaSession({
+      token: 'T',
+      expires_at: 1,
+      cartesia_version: 'v',
+      stt: { endpoint: 'e', model: 'm' },
+      tts: { endpoint: 'e', model: 'm' },
+      voice_cloning_enabled: false,
+      default_voice_id: null,
+    });
+    expect(out.sttModelsByLang).toEqual({});
+    expect(out.defaultVoiceId).toBeUndefined();
+  });
+});
+
+describe('ttsRequest / parseTtsFrame', () => {
+  it('builds the one-shot Sonic request (raw PCM16 at 24 kHz, one context, no continuation)', () => {
+    expect(JSON.parse(ttsRequest(SESSION, 'V', 'Hello', 'it', 'ctx-1'))).toEqual({
+      model_id: 'sonic-3.5',
+      transcript: 'Hello',
+      voice: { mode: 'id', id: 'V' },
+      output_format: { container: 'raw', encoding: 'pcm_s16le', sample_rate: 24000 },
+      language: 'it',
+      context_id: 'ctx-1',
+      continue: false,
+    });
+  });
+
+  it('parses chunk / done / error frames and rejects binary or malformed ones', () => {
+    expect(parseTtsFrame(JSON.stringify({ type: 'chunk', context_id: 'c', data: 'AAA' }))).toEqual({ type: 'chunk', contextId: 'c', data: 'AAA' });
+    expect(parseTtsFrame(JSON.stringify({ type: 'done', context_id: 'c' }))).toEqual({ type: 'done', contextId: 'c', data: undefined });
+    expect(parseTtsFrame('nope')).toBeNull();
+    expect(parseTtsFrame(new ArrayBuffer(1))).toBeNull();
+  });
+});
+
+describe('openSttGraph / closeSttGraph', () => {
+  beforeEach(() => installMocks());
+
+  it('wires a 16 kHz capture graph that hands every chunk to the callback, and tears down cleanly', async () => {
+    const chunks: ArrayBuffer[] = [];
+    const graph = await openSttGraph(fakeStream(), (c) => chunks.push(c));
+    expect(graph).not.toBeNull();
+    const node = workletNodes[0];
+    const buf = new ArrayBuffer(4);
+    node.port.onmessage?.({ data: buf });
+    expect(chunks).toEqual([buf]);
+    closeSttGraph(graph as never);
+    expect(node.port.onmessage).toBeNull();
+  });
+
+  it('returns null and leaves nothing open when cancelled while the worklet loads, or when the track vanished', async () => {
+    expect(await openSttGraph(fakeStream(), () => {}, () => true)).toBeNull();
+    expect(workletNodes).toHaveLength(0);
+    expect(await openSttGraph(fakeStream([]), () => {})).toBeNull();
+  });
+
+  it('throws on a real failure so the caller can handle it', async () => {
+    mockCfg.sourceThrows = true;
+    await expect(openSttGraph(fakeStream(), () => {})).rejects.toThrow('source fail');
+  });
+
+  it('closing a partial or already-closed graph never throws', () => {
+    closeSttGraph({});
+    closeSttGraph({
+      node: { port: { onmessage: null }, disconnect: () => { throw new Error('x'); } } as never,
+      src: { disconnect: () => { throw new Error('y'); } } as never,
+      ctx: { close: () => Promise.reject(new Error('z')) } as never,
+    });
   });
 });

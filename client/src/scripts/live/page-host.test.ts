@@ -39,6 +39,10 @@ vi.mock('./api', () => ({
   listEngines: (...a: unknown[]) => api.listEngines(...a),
 }));
 const unlock = vi.fn();
+const prep = { prepareVoice: vi.fn() };
+vi.mock('./voice-prep', () => ({ prepareVoice: (...a: unknown[]) => prep.prepareVoice(...a) }));
+const restricted = { value: false };
+vi.mock('../restricted-net', () => ({ isRestrictedNetwork: async () => restricted.value }));
 vi.mock('../pcm-playback', () => ({ pcmPlayback: { unlock: () => unlock() } }));
 const toast = vi.fn();
 vi.mock('../toast', () => ({ toast: (...a: unknown[]) => toast(...a) }));
@@ -85,6 +89,8 @@ beforeEach(() => {
   api.listEngines.mockReset();
   api.listEngines.mockResolvedValue({ ok: false, status: 0, code: 'network' });
   localStorage.clear();
+  restricted.value = false;
+  prep.prepareVoice.mockReset();
   unlock.mockReset();
   toast.mockReset();
   qrDataUrl.mockClear();
@@ -647,5 +653,200 @@ describe('reload', () => {
     await mountLiveHost();
     expect(api.getSession).not.toHaveBeenCalled();
     expect($('lh-setup').hidden).toBe(false);
+  });
+});
+
+describe('Enhanced tier and the host voice', () => {
+  const eng = (id: string, over: Record<string, unknown> = {}) => ({
+    id,
+    display_name: id,
+    tier: id === 'cartesia' ? 'enhanced' : id === 'standard' ? 'standard' : 'premium',
+    description: 'd',
+    rate_per_minute: 0.01,
+    min_balance: 0.05,
+    available: true,
+    scales_per_language: true,
+    client_direct: id === 'cartesia',
+    ...over,
+  });
+  const clone = (available: boolean, cloning_enabled = true, has_clone = available) => ({ available, cloning_enabled, has_clone });
+  const list = (voice = clone(true)) => ({ default: 'standard', engines: [eng('standard'), eng('cartesia', { voice_clone: voice }), eng('gemini_live_translate')] });
+  const radios = () => Array.from(document.querySelectorAll<HTMLInputElement>('#lh-tiers input[type="radio"]'));
+  const pick = (id: string) => (radios().find((r) => r.value === id) as HTMLInputElement).click();
+  const box = () => $('lh-voice-clone') as HTMLInputElement;
+  const setup = async (data: unknown) => {
+    api.listEngines.mockResolvedValue({ ok: true, data });
+    await mountLiveHost();
+    await flush();
+  };
+
+  it('offers the Enhanced card between Standard and Premium', async () => {
+    await setup(list());
+    expect(radios().map((r) => r.value)).toEqual(['standard', 'cartesia', 'gemini_live_translate']);
+  });
+
+  it('hides Enhanced on a restricted network (and creating then sends no Enhanced)', async () => {
+    restricted.value = true;
+    localStorage.setItem(TIER_PREF_KEY, 'cartesia');
+    api.createSession.mockResolvedValue({ ok: true, data: CREATED });
+    await setup(list());
+    expect(radios().map((r) => r.value)).toEqual(['standard', 'gemini_live_translate']);
+    $('lh-create').click();
+    await flush();
+    expect(api.createSession.mock.calls[0][0]).not.toHaveProperty('engine');
+  });
+
+  it('does not show Enhanced when the server does not list it', async () => {
+    await setup({ default: 'standard', engines: [eng('standard'), eng('gemini_live_translate')] });
+    expect(radios().map((r) => r.value)).toEqual(['standard', 'gemini_live_translate']);
+  });
+
+  describe('consent checkbox', () => {
+    it('is hidden until Enhanced is the picked card, and then shows the explicit consent sentence in its label', async () => {
+      await setup(list());
+      expect($('lh-voice-field').hidden).toBe(true);
+      pick('cartesia');
+      expect($('lh-voice-field').hidden).toBe(false);
+      expect($('lh-voice-field').textContent).toContain(EN.liveVoiceClone);
+      expect($('lh-voice-field').textContent).toContain(EN.liveVoiceCloneConsent);
+      expect(EN.liveVoiceCloneConsent).toMatch(/guests' phones receive the identifier/);
+      const label = document.querySelector('label[for="lh-voice-clone"]') as HTMLElement;
+      expect(label.contains(box())).toBe(true);
+      expect(label.textContent).toContain(EN.liveVoiceCloneConsent);
+    });
+
+    it('is never pre-checked, and is hidden again (and cleared) when another card is picked', async () => {
+      await setup(list());
+      pick('cartesia');
+      expect(box().checked).toBe(false);
+      box().checked = true;
+      pick('gemini_live_translate');
+      expect($('lh-voice-field').hidden).toBe(true);
+      pick('cartesia');
+      expect(box().checked).toBe(false);
+    });
+
+    it('is not offered when the server says no clone can be used and cloning is off', async () => {
+      await setup(list(clone(false, false, false)));
+      pick('cartesia');
+      expect($('lh-voice-field').hidden).toBe(true);
+      expect($('lh-voiceprep').hidden).toBe(true);
+    });
+
+    it('create sends voice_clone only when it is ticked on the Enhanced card', async () => {
+      api.createSession.mockResolvedValue({ ok: true, data: { ...CREATED, engine: 'cartesia', voice_clone: true } });
+      await setup(list());
+      pick('cartesia');
+      box().checked = true;
+      $('lh-create').click();
+      await flush();
+      expect(api.createSession.mock.calls[0][0]).toMatchObject({ engine: 'cartesia', voiceClone: true });
+    });
+
+    it('create sends no voice_clone when it is left unticked, nor on another tier even if it was ticked before', async () => {
+      api.createSession.mockResolvedValue({ ok: true, data: CREATED });
+      await setup(list());
+      pick('cartesia');
+      $('lh-create').click();
+      await flush();
+      expect(api.createSession.mock.calls[0][0]).toMatchObject({ engine: 'cartesia' });
+      expect(api.createSession.mock.calls[0][0]).not.toHaveProperty('voiceClone');
+      pick('cartesia');
+      box().checked = true;
+      pick('gemini_live_translate');
+      $('lh-create').click();
+      await flush();
+      expect(api.createSession.mock.calls[1][0]).not.toHaveProperty('voiceClone');
+    });
+  });
+
+  describe('Prepare my voice', () => {
+    it('is offered inline when cloning is on but the account has no clone, instead of the checkbox', async () => {
+      await setup(list(clone(false, true, false)));
+      pick('cartesia');
+      expect($('lh-voiceprep').hidden).toBe(false);
+      expect($('lh-voice-field').hidden).toBe(true);
+      expect($('lh-voiceprep').textContent).toContain(EN.voicePrepPrompt);
+      expect($('lh-voiceprep-record').textContent).toBe(EN.voicePrepRecord);
+      pick('standard');
+      expect($('lh-voiceprep').hidden).toBe(true);
+    });
+
+    it('records in the host language, shows the progress and the outcome, then offers the (still unticked) checkbox', async () => {
+      prep.prepareVoice.mockImplementation(async (_lang: string, onState: (s: string) => void, onProgress: (f: number) => void) => {
+        onState('recording');
+        onProgress(0.5);
+        expect(($('lh-voiceprep-meter') as HTMLProgressElement).hidden).toBe(false);
+        expect(($('lh-voiceprep-meter') as HTMLProgressElement).value).toBe(0.5);
+        expect($('lh-voiceprep-status').textContent).toBe(EN.voicePrepRecording);
+        onState('saving');
+        expect($('lh-voiceprep-status').textContent).toBe(EN.voicePrepSaving);
+        onState('cloned');
+        return true;
+      });
+      await setup(list(clone(false, true, false)));
+      pick('cartesia');
+      $('lh-voiceprep-record').click();
+      await flush();
+      expect(prep.prepareVoice.mock.calls[0][0]).toBe('it');
+      expect($('lh-voiceprep-status').textContent).toBe(EN.voicePrepSaved);
+      expect($('lh-voiceprep').hidden).toBe(true);
+      expect($('lh-voice-field').hidden).toBe(false);
+      expect(box().checked).toBe(false);
+      expect(($('lh-voiceprep-record') as HTMLButtonElement).disabled).toBe(false);
+    });
+
+    it('a failed preparation says so, keeps the panel, and lets the host try again', async () => {
+      prep.prepareVoice.mockImplementation(async (_l: string, onState: (s: string) => void) => {
+        onState('failed');
+        return false;
+      });
+      await setup(list(clone(false, true, false)));
+      pick('cartesia');
+      $('lh-voiceprep-record').click();
+      await flush();
+      expect($('lh-voiceprep-status').textContent).toBe(EN.voicePrepFailed);
+      expect($('lh-voiceprep').hidden).toBe(false);
+      expect($('lh-voice-field').hidden).toBe(true);
+      $('lh-voiceprep-record').click();
+      await flush();
+      expect(prep.prepareVoice).toHaveBeenCalledTimes(2);
+    });
+
+    it('ignores a second tap while recording', async () => {
+      let release: (v: boolean) => void = () => {};
+      prep.prepareVoice.mockReturnValue(new Promise((r) => (release = r)));
+      await setup(list(clone(false, true, false)));
+      pick('cartesia');
+      $('lh-voiceprep-record').click();
+      $('lh-voiceprep-record').click();
+      expect(prep.prepareVoice).toHaveBeenCalledTimes(1);
+      expect(($('lh-voiceprep-record') as HTMLButtonElement).disabled).toBe(true);
+      release(false);
+    });
+  });
+
+  it.each([
+    ['voice_clone_unavailable', 'liveErrVoiceCloneUnavailable'],
+    ['bad_voice_clone', 'liveErrBadVoiceClone'],
+    ['engine_not_available', 'liveErrEngineNotAvailable'],
+    ['engine_not_allowed', 'liveErrEngineNotAllowed'],
+  ])('shows a friendly message for %s', async (code, key) => {
+    api.createSession.mockResolvedValue({ ok: false, status: 400, code });
+    await setup(list());
+    pick('cartesia');
+    box().checked = true;
+    $('lh-create').click();
+    await flush();
+    expect($('lh-status').textContent).toBe(EN[key]);
+  });
+
+  it('a 402 on Enhanced still shows the buy-credits path', async () => {
+    api.createSession.mockResolvedValue({ ok: false, status: 402, code: 'insufficient_balance' });
+    await setup(list());
+    pick('cartesia');
+    $('lh-create').click();
+    await flush();
+    expect($('lh-buy').hidden).toBe(false);
   });
 });

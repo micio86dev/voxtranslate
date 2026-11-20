@@ -30,6 +30,8 @@ export interface StoredSession {
   maxGuests?: number;
   /** The tier the conversation runs on (`standard` after a fallback). Absent = standard. */
   engine?: string;
+  /** Enhanced: the host's cloned voice speaks the translations. A guest is told so in the room. */
+  voiceClone?: boolean;
 }
 
 export function saveStoredSession(s: StoredSession): void {
@@ -66,6 +68,7 @@ export function loadStoredSession(): StoredSession | null {
         ? { maxGuests: v.maxGuests }
         : {}),
       ...(typeof v.engine === 'string' && v.engine ? { engine: v.engine } : {}),
+      ...(v.voiceClone === true ? { voiceClone: true } : {}),
     };
   } catch {
     return null;

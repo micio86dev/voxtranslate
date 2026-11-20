@@ -221,3 +221,15 @@ describe('staff language per desk (localStorage)', () => {
     expect(loadStaffLang('d1')).toBeNull();
   });
 });
+
+describe('stored session: the host voice clone flag', () => {
+  it('round-trips true, and an absent or non-true value is simply absent', () => {
+    const base = { sessionId: 's', token: 't', role: 'guest' as const, myLang: 'es', myPeerId: 'g', wsPath: '/ws/live' };
+    saveStoredSession({ ...base, engine: 'cartesia', voiceClone: true });
+    expect(loadStoredSession()).toMatchObject({ engine: 'cartesia', voiceClone: true });
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ ...base, voiceClone: 'yes' }));
+    expect(loadStoredSession()).not.toHaveProperty('voiceClone');
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(base));
+    expect(loadStoredSession()).not.toHaveProperty('voiceClone');
+  });
+});
