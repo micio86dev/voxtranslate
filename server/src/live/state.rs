@@ -1,7 +1,7 @@
 //! Shared Live Connect state, carried on `AppState`.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
@@ -27,7 +27,20 @@ use crate::rooms::PeerTx;
 pub struct SessionLatency {
     epoch: tokio::time::Instant,
     stamps: [AtomicU64; 2],
+    /// Per seat, smoothed microphone level of the audio it feeds the engine (mean absolute PCM16
+    /// sample) and when it was last updated. Written only by that seat's socket.
+    mic_level: [AtomicU32; 2],
+    mic_level_at: [AtomicU64; 2],
+    /// Per seat, when its microphone last carried speech (same nanosecond encoding as `stamps`).
+    mic_voiced_at: [AtomicU64; 2],
+    /// When the echo filter last wrote a diagnostics event for this conversation.
+    echo_report_at: AtomicU64,
 }
+
+/// A microphone level nobody refreshed for this long is silence, not "the last thing it heard".
+const MIC_LEVEL_FRESH: Duration = Duration::from_secs(3);
+/// The echo filter writes at most one diagnostics event per conversation in this interval.
+const ECHO_REPORT_EVERY: Duration = Duration::from_secs(10);
 
 /// An utterance older than this when its audio finally arrives was never going to be a latency
 /// sample (the translation was skipped, or the speaker went on to something else): dropped, not
@@ -39,7 +52,68 @@ impl SessionLatency {
         Self {
             epoch: tokio::time::Instant::now(),
             stamps: [AtomicU64::new(0), AtomicU64::new(0)],
+            mic_level: [AtomicU32::new(0), AtomicU32::new(0)],
+            mic_level_at: [AtomicU64::new(0), AtomicU64::new(0)],
+            mic_voiced_at: [AtomicU64::new(0), AtomicU64::new(0)],
+            echo_report_at: AtomicU64::new(0),
         }
+    }
+
+    fn encode(&self, at: tokio::time::Instant) -> u64 {
+        (at.saturating_duration_since(self.epoch).as_nanos() as u64).saturating_add(1)
+    }
+
+    /// One frame the `seat`'s phone fed the engine: `mean_abs` is its mean absolute sample.
+    ///
+    /// Feeds the echo filter's one hard question: when both phones heard the same sentence, whose
+    /// mouth was it? The phone whose microphone was clearly louder. A smoothed level (about 1.6 s
+    /// time constant at 10 frames/s) rather than the last frame, so a pause between words does not
+    /// flip the answer. Only the seat's own socket writes it, so a plain load/store is enough.
+    pub fn mic_frame(&self, seat: usize, at: tokio::time::Instant, mean_abs: u32, voiced: bool) {
+        let i = seat & 1;
+        // A stale level reads as 0, so speech after a long silence starts from silence.
+        let old = self.mic_level(i, at);
+        self.mic_level[i].store(old - old / 16 + mean_abs / 16, Ordering::Relaxed);
+        let stamp = self.encode(at);
+        self.mic_level_at[i].store(stamp, Ordering::Relaxed);
+        if voiced {
+            self.mic_voiced_at[i].store(stamp, Ordering::Relaxed);
+        }
+    }
+
+    /// The smoothed microphone level of `seat` at `now`; `0` when it has been quiet for a while.
+    pub fn mic_level(&self, seat: usize, now: tokio::time::Instant) -> u32 {
+        let i = seat & 1;
+        let stamp = self.mic_level_at[i].load(Ordering::Relaxed);
+        if stamp == 0 {
+            return 0;
+        }
+        let age = now
+            .saturating_duration_since(self.epoch)
+            .saturating_sub(Duration::from_nanos(stamp - 1));
+        if age > MIC_LEVEL_FRESH {
+            return 0;
+        }
+        self.mic_level[i].load(Ordering::Relaxed)
+    }
+
+    /// When `seat`'s microphone last carried speech, if ever.
+    pub fn mic_last_voiced(&self, seat: usize) -> Option<tokio::time::Instant> {
+        let stamp = self.mic_voiced_at[seat & 1].load(Ordering::Relaxed);
+        (stamp != 0).then(|| self.epoch + Duration::from_nanos(stamp - 1))
+    }
+
+    /// Whether the echo filter may write a diagnostics event now. At most one per conversation per
+    /// [`ECHO_REPORT_EVERY`], whichever seat asks first: two seats must not double the rate.
+    pub fn allow_echo_report(&self, now: tokio::time::Instant) -> bool {
+        let stamp = self.encode(now);
+        let last = self.echo_report_at.load(Ordering::Relaxed);
+        if last != 0 && Duration::from_nanos(stamp.saturating_sub(last)) < ECHO_REPORT_EVERY {
+            return false;
+        }
+        self.echo_report_at
+            .compare_exchange(last, stamp, Ordering::Relaxed, Ordering::Relaxed)
+            .is_ok()
     }
 
     /// The seat index of a role: the owner side (host, staff) is `0`, the guest `1`.
@@ -349,6 +423,52 @@ mod tests {
 
     fn at(base: tokio::time::Instant, ms: u64) -> tokio::time::Instant {
         base + Duration::from_millis(ms)
+    }
+
+    #[test]
+    fn a_microphone_level_smooths_decays_and_belongs_to_one_seat() {
+        let l = SessionLatency::new();
+        let t0 = l.epoch;
+        assert_eq!((l.mic_level(0, t0), l.mic_last_voiced(0)), (0, None));
+        for i in 0..60u64 {
+            l.mic_frame(0, at(t0, i * 100), 1000, true);
+        }
+        let loud = l.mic_level(0, at(t0, 6_000));
+        assert!(
+            (900..=1000).contains(&loud),
+            "settles near the input: {loud}"
+        );
+        assert_eq!(
+            l.mic_level(1, at(t0, 6_000)),
+            0,
+            "the other seat is untouched"
+        );
+        assert_eq!(l.mic_last_voiced(0), Some(at(t0, 5_900)));
+        // One quiet frame does not flip it...
+        l.mic_frame(0, at(t0, 6_000), 0, false);
+        assert!(l.mic_level(0, at(t0, 6_000)) > loud * 9 / 10);
+        assert_eq!(
+            l.mic_last_voiced(0),
+            Some(at(t0, 5_900)),
+            "quiet is not speech"
+        );
+        // ...but silence for long enough is silence, and speech restarts from it.
+        assert_eq!(l.mic_level(0, at(t0, 9_100)), 0);
+        l.mic_frame(0, at(t0, 9_200), 1000, true);
+        assert!(l.mic_level(0, at(t0, 9_200)) < 100);
+    }
+
+    #[test]
+    fn echo_reports_are_limited_per_conversation_not_per_seat() {
+        let l = SessionLatency::new();
+        let t0 = l.epoch;
+        assert!(l.allow_echo_report(at(t0, 100)));
+        assert!(
+            !l.allow_echo_report(at(t0, 5_000)),
+            "the other seat shares the limit"
+        );
+        assert!(!l.allow_echo_report(at(t0, 10_000)));
+        assert!(l.allow_echo_report(at(t0, 10_200)));
     }
 
     #[test]
