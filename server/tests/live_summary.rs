@@ -1378,3 +1378,72 @@ async fn the_conversation_never_reaches_the_logs_even_when_the_provider_quotes_i
         );
     }
 }
+
+// ---- several guests in one conversation (spec 0121, S1) --------------------------------
+
+#[tokio::test]
+async fn a_summary_of_a_conversation_with_several_guests_reads_every_speaker_in_their_language() {
+    let srv = srv!();
+    let w = world(&srv, 100).await;
+    let s = seed(&srv, &w, "ended").await;
+    small_talk(&srv, &s).await;
+    // Two more guests, one of them in a language already there.
+    let t0 = Utc::now() - Span::minutes(9);
+    for (i, (name, lang, text)) in [
+        ("Ben", "en", "Is breakfast included?"),
+        ("Pablo", "es", "Y el aparcamiento?"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let peer: Uuid = sqlx::query_scalar(
+            "INSERT INTO live_participants (session_id, role, display_name, lang, joined_at)
+             VALUES ($1, 'guest', $2, $3, now() + make_interval(mins => $4)) RETURNING peer_id",
+        )
+        .bind(s.session)
+        .bind(name)
+        .bind(lang)
+        .bind(i as i32 + 1)
+        .fetch_one(&srv.pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO transcript_events (session_id, event_type, speaker_peer_id, speaker_name, original_text, original_lang, translations, ts)
+             VALUES ($1, 'speech', $2, $3, $4, $5, '{}'::jsonb, $6)",
+        )
+        .bind(s.call)
+        .bind(peer.to_string())
+        .bind(name)
+        .bind(text)
+        .bind(lang)
+        .bind(t0 + Span::seconds(25 + i as i64 * 5))
+        .execute(&srv.pool)
+        .await
+        .unwrap();
+    }
+
+    // The conversation is readable (a scalar subquery over "the" guest would have failed here)
+    // and everything each of the four said reaches the model, with who and in which language.
+    let (status, body) = srv
+        .post(
+            &path(w.org, s.session),
+            &w.admin.0,
+            Some(json!({"lang": "en"})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let sent = srv.groq.last_user();
+    for needle in [
+        "Anna (it)",
+        "Lucía (es)",
+        "Ben (en)",
+        "Pablo (es)",
+        "Is breakfast included?",
+        "Y el aparcamiento?",
+    ] {
+        assert!(sent.contains(needle), "{needle:?} missing from {sent}");
+    }
+    // The member who sat in it still gets a summary in their own language.
+    let (_, mine) = srv.post(&path(w.org, s.session), &w.sat.0, None).await;
+    assert_eq!(mine["lang"], "fr");
+}

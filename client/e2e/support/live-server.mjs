@@ -99,6 +99,10 @@ export async function startLiveStack(opts = {}) {
     // Live Connect on, with the shortest billing interval so a few seconds of speech charge.
     LIVE_CONNECT_ENABLED: '1',
     LIVE_TOKEN_KEY,
+    // The mock upstream answers BOTH phones with the same sentence, which is exactly what the
+    // server's echo filter exists to drop; these journeys test the screens, not the filter
+    // (covered by tests/live_echo.rs and live_ws.rs), so it is off here.
+    LIVE_ECHO_FILTER: '0',
     USAGE_UPDATE_INTERVAL: '2',
     // The real rate is a fraction of a cent per tick, which an organisation (whole credits, one
     // credit = one cent) would only be charged after about a minute. A deliberately high rate makes a

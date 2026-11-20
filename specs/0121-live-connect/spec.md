@@ -40,15 +40,21 @@ What the audit (2026-11-19, branch `develop`) established and this spec relies o
 
 **Goals**
 - Two phones converse in two languages simultaneously, with no accounts required for the guest.
+- **Multi-guest (2026-11, release 1.63):** one host and up to three guests on the SAME link/QR,
+  languages free, the owner paying for every seat per distinct language spoken (R11-R13).
 - B2C: the signed-in owner creates the session and pays for both directions.
 - B2B: permanent, revocable, regenerable desk QR codes; every scan creates a new session bound to
   an existing project and billed to the org wallet; conversations searchable like meetings.
-- No new plan or tier, no parallel wallet, project model or search index.
+- No new plan, no parallel wallet, project model or search index. The host may pick the translation
+  tier (Standard by default, Premium when enabled) when creating a B2C conversation; every seat uses it
+  and the owner pays every seat at that tier's rate (see `docs/live-connect.md`, *Tier choice*).
 
 **Non-Goals**
 - WebRTC audio between the phones (the server must receive each microphone regardless).
-- The Enhanced (Cartesia, client-direct) engine: it cannot serve guests.
-- More than two participants per session; video; permanent raw-audio storage.
+- The Enhanced (Cartesia, client-direct) engine as a *server-served* tier: the server never proxies its
+  audio. It is served client-direct instead (R17): speaker-side STT, server translation, listener-side TTS.
+- More than four participants per session (host + 3 guests, because a room holds four peers);
+  video; permanent raw-audio storage.
 - Any claim of hardware support before real-device verification (M8).
 
 ## 3. Requirements
@@ -62,9 +68,10 @@ What the audit (2026-11-19, branch `develop`) established and this spec relies o
 - **R3 — Two directions, concurrently.** *Given* two joined peers with different languages,
   *when* both speak at once, *then* each hears only the other's translation and neither direction
   waits for the other.
-- **R4 — One invitation, one guest.** *Given* a guest already joined, *when* a second device uses
-  the same invitation, *then* it is refused (`session_full`); the first device can reconnect with
-  its own token.
+- **R4 — One invitation, `max_guests` guests.** *Given* a session that admits `max_guests` guests
+  (default 1), *when* more devices use the same invitation than it admits, *then* the surplus are
+  refused (`session_full`); a guest who dropped can reconnect with their own token. With the default
+  of one this is exactly the original single-use link.
 - **R5 — Permanent desk QR.** *Given* an active desk, *when* anyone scans its QR, *then* a **new**
   session is created every time; the QR never resolves to an existing conversation.
 - **R6 — Revoke and regenerate.** *Given* a printed QR, *when* the desk is revoked, *then* scans are
@@ -75,6 +82,17 @@ What the audit (2026-11-19, branch `develop`) established and this spec relies o
 - **R8 — Billing.** *Given* a session with two different languages, *then* usage for **both**
   directions is billed to the owner (user wallet or org wallet), once per tick even if a meter
   restarts, and never to the guest.
+- **R11 — Several guests on one link.** *Given* a host who asked for `max_guests` 1-3, *when* guests
+  open the same link one after the other (or all at once), *then* exactly `max_guests` are admitted,
+  each with a seat, token and consent of their own, until the session ends or fills; the join window
+  only closes a session nobody joined. A join the engine could not serve is refused `live_busy`.
+- **R12 — Everybody hears everybody.** *Given* 2-4 phones, *then* each hears every other speaker
+  translated into its own language (two sharing a language hear each other natively), is told who
+  joins, leaves and mutes, and a phone that reconnects keeps its seat.
+- **R13 — The owner pays per distinct language.** *Given* a room of several languages, *then* each
+  seat's meter bills one stream per distinct language present other than its speaker's, at the
+  session tier's rate (host `it`, guests `es`/`es`/`en`: 2 streams for each seat), nothing when all
+  share the speaker's language, idempotently per `(session, peer, tick)`.
 - **R9 — Insufficient credit.** *Given* the payer runs out mid-call, *then* both phones are told
   (`balance_exhausted`), audio stops and the session ends cleanly.
 - **R10 — Concurrent sessions cannot overspend.** *Given* N sessions on one org wallet, *then* the
@@ -89,6 +107,29 @@ What the audit (2026-11-19, branch `develop`) established and this spec relies o
 - **R14 — Reconnection.** *Given* a dropped phone, *when* it returns within the grace with its
   token, *then* it resumes in the same session without a second meter.
 - **R15 — Existing features unchanged.** "Talk to anyone", rooms, webinars and calls behave as before.
+- **R16 — Tier choice.** *Given* a signed-in owner, *when* they create a conversation with `engine`
+  `standard` (default) or `gemini_live_translate`, *then* every seat runs on that tier, is billed at its
+  rate per distinct target language, and the minimum balance scales with the rate; Premium at capacity
+  falls back to Standard for the whole conversation with one `engine_downgraded` notice (never
+  `live_busy`); business conversations and desks stay Standard. `GET /api/live/engines` lists the choices
+  with their rates.
+- **R17 — Enhanced and the host's cloned voice.** *Given* a signed-in owner, *when* they create a
+  conversation with `engine:"cartesia"` (and optionally `voice_clone:true`, which needs a clone on their
+  account and cloning enabled), *then* each phone runs Cartesia STT on its own microphone and sends
+  `translate_text`, the server translates once per distinct other language and sends each listener captions
+  and an `enhanced_speak` (the host's `voice_id` only when the conversation opted in, never for a guest),
+  the owner pays every seat at the Enhanced rate for the frames actually accepted, an echo of another seat's
+  text (at least three words, at least 0.85 similar, within a few seconds) is dropped but a short reply
+  never is, a guest can mint a rate-limited TTS/STT token with only its live token, and the HOST's
+  `enhanced_fallback` moves the whole conversation to Standard with one `engine_downgraded`
+  (`reason:"enhanced_unavailable"`; a guest's gets `fallback_not_allowed` and changes nothing). Business
+  conversations and desks stay Standard.
+- **R18 — No seat can drain the owner or the translation hop.** *Given* any tier, *when* a seat sends
+  `start`/`stop` in a loop, *then* it takes at most one opening charge per `usage_update_interval` (the
+  first short Start is still charged, an honest Start an interval later is charged again); *and given* an
+  Enhanced seat flooding `translate_text`, *then* partials are limited to 2 a second and 400 characters,
+  a seat has at most 2 translation calls in flight, and a conversation at most
+  `LIVE_ENHANCED_CALLS_PER_MIN` (default 600) calls a minute, while an honest exchange is unaffected.
 
 ## 4. Design & Architecture
 
@@ -123,7 +164,10 @@ What the audit (2026-11-19, branch `develop`) established and this spec relies o
    durable record of a meeting is `call_sessions`. Linking keeps transcripts, search, history, the
    meter and the org ledger (whose `session_id` must reference `call_sessions`) working unchanged;
    `ON DELETE SET NULL` lets retention purge the conversation without erasing usage.
-3. **Server-minted identity.** Room code `live-<uuid>`, peer id = participant uuid, max two
+3. **Server-minted identity.** Room code `live-<uuid>`, peer id = participant uuid. One owner-side
+   seat is a partial unique index; the guest count (`live_sessions.max_guests`, 1-3) is enforced in
+   code under a `FOR UPDATE` lock on the session row (migration 069 turned the guest-side unique
+   index into a plain one under the same name, so re-running 065 stays a no-op). Originally two
    participants enforced by two partial unique indexes. This removes the client-chosen peer id that
    lets any joiner evict another today.
 4. **Guest credential = signed token with its own key and audience.** Invite code (192 bits, only
@@ -134,8 +178,8 @@ What the audit (2026-11-19, branch `develop`) established and this spec relies o
    bits; the database keeps only `token_version`. Revoke is a status flag, regenerate bumps the
    version. Chosen over a stored hash so printed assets can be re-downloaded at any time. The QR
    carries a public handle and the MAC only — never an org id or account identifier.
-6. **The owner pays for both directions; ticks are idempotent.** Guest peers get a meter whose
-   payer is the owner. A debit and its `live_usage_ticks` row commit in one transaction with
+6. **The owner pays for every seat; ticks are idempotent.** Guest peers get a meter whose
+   payer is the owner, billing one stream per distinct target language present (R13). A debit and its `live_usage_ticks` row commit in one transaction with
    `ON CONFLICT DO NOTHING`, so a duplicated meter charges nothing twice. One meter per peer.
 7. **Language is declared, not guessed.** Each phone sets its language; `auto` is not allowed.
    A wrong-language check is advisory only and never delays audio. JEV is not on the realtime path:
@@ -159,6 +203,7 @@ been run on real devices (S7/M8 below).
 | S0 (M1) | Spec, docs, migration 065, tokens, config | `specs/0121-*`, `docs/live-connect.md`, `065_live_connect.sql`, `live/{config,tokens}.rs` | built |
 | S1 (M2) | Sessions REST, `/ws/live`, sweeper, engine wiring, capacity gate | `live/{sessions,routes,ws,sweeper,state}.rs` | built. **Not built**: `presence.rs` (presence is read from the room registry), `echo.rs` / the server `EchoLedger`, the `language_mismatch` and `echo_flush` frames (deferred until device measurements, see the tracking file, L5) |
 | S2 (M5) | Per-phone owner-paid meters, idempotent ticks, caps | `live/billing.rs`, migration 066 | built, independently verified (L7) |
+| S2b (1.63) | Several guests per link: `max_guests`, race-safe reusable join, 4-seat room, per-seat mic levels for the echo filter, billing per distinct language, N-guest audit of dashboard/finalise/search/erase | `069_live_multi_guest.sql`, `live/{sessions,routes,ws,state,billing,dashboard}.rs` | built (server); client work is a separate unit; **not verified on real devices** |
 | S3 (M3) | Home entry, host/guest/desk-scan pages, audio, 84 locales | `client/src/{pages,scripts/live,scripts/i18n}` | built; one client defect pinned by e2e (partner id read as `peer_id`, the server sends `id`); legal copy and low-confidence locales awaiting review |
 | S4 (M4) | Finalize, transcripts, embeddings, filters, retention, erasure | `live/{finalize,erase}.rs`, `business/search.rs` | built, independently verified (L9) |
 | S5 (M6) | Dashboard area, desks, QR assets, console, usage | `dashboard/src/…` (submodule), `live/{desks,dashboard}.rs` | built |
@@ -167,7 +212,7 @@ been run on real devices (S7/M8 below).
 
 ## 6. Testing & Verification
 
-- **Schema (S0):** `tests/live_schema.rs` — RLS, owner check, vocabularies, two-seat cap, tick
+- **Schema (S0):** `tests/live_schema.rs` — RLS, owner check, vocabularies, one owner-side seat, `max_guests` check, tick
   idempotency, purge-keeps-usage, desk uniqueness, migration re-run.
 - **Tokens/config (S0):** unit tests for forgery, expiry, audience, JWT confusion, desk MAC
   version binding, shape checks, flag/key/limit validation.
@@ -188,12 +233,12 @@ been run on real devices (S7/M8 below).
 - Env: `LIVE_CONNECT_ENABLED`, `LIVE_TOKEN_KEY`, `LIVE_JOIN_WINDOW_SECS`, `LIVE_DESK_WAIT_SECS`,
   `LIVE_MAX_SESSION_MIN`, `LIVE_MAX_CONCURRENT_PER_OWNER`, `LIVE_RECONNECT_GRACE_SECS`
   `LIVE_DESK_MAX_WAITING`, `LIVE_FINALIZE_GRACE_SECS`, `LIVE_RETENTION_DEFAULT_DAYS`,
-  `LIVE_B2C_RETENTION_DAYS` (`server/.env.example`).
-- Migrations 065-068 are additive and idempotent. Flag off → no route is reachable (but the two
+  `LIVE_B2C_RETENTION_DAYS`, `LIVE_MAX_GUESTS` (`server/.env.example`).
+- Migrations 065-069 are additive and idempotent. Flag off → no route is reachable (but the two
   erase endpoints stay mounted). Enable and rollback steps: `docs/live-connect.md`, "Deployment and
   migration".
 - Rooms are in memory and the server is single-replica: a deploy drops live sessions; phones
-  reconnect within the grace. Capacity: Qwen's 32-session cap ≈ 16 simultaneous pairs.
+  reconnect within the grace. Capacity: Qwen's 32-session cap ≈ 16 simultaneous pairs; a bigger room needs one upstream session per speaker per distinct other language.
 - Rotating `LIVE_TOKEN_KEY` invalidates every printed desk QR and every guest token in flight.
 
 ## 8. Risks / Open Items

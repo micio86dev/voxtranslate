@@ -15,6 +15,7 @@
 // translate, how to play audio, and the spoken-voice toggle, so the transcript logic stays
 // unit-testable without a live WebSocket / AudioContext.
 
+import type { EnhancedSessionResponse } from './api';
 import { pcmPlayback } from './pcm-playback';
 
 /** A minted client-direct session: the scoped access token + the public endpoints. */
@@ -37,6 +38,23 @@ export interface CartesiaSession {
   /** Fallback Cartesia voice id (env-configured) for a speaker without a clone; absent →
    *  such a speaker is shown subtitles only. */
   defaultVoiceId?: string;
+}
+
+/** Map the server's `enhanced/session` answer to a `CartesiaSession`. Shared by Meet (app.ts)
+ *  and Live Connect, which mint the same token shape from different endpoints. */
+export function toCartesiaSession(s: EnhancedSessionResponse): CartesiaSession {
+  return {
+    token: s.token,
+    expiresAt: s.expires_at,
+    cartesiaVersion: s.cartesia_version,
+    sttEndpoint: s.stt.endpoint,
+    sttModel: s.stt.model,
+    sttModelsByLang: s.stt.models_by_lang ?? {},
+    ttsEndpoint: s.tts.endpoint,
+    ttsModel: s.tts.model,
+    voiceCloningEnabled: s.voice_cloning_enabled,
+    defaultVoiceId: s.default_voice_id ?? undefined,
+  };
 }
 
 export interface CartesiaManagerOptions {
@@ -143,6 +161,102 @@ export function ttsUrl(session: CartesiaSession): string {
   url.searchParams.set('cartesia_version', session.cartesiaVersion);
   url.searchParams.set('access_token', session.token);
   return url.toString();
+}
+
+/** The JSON request that makes Cartesia speak `text` in `voiceId` (one utterance = one context).
+ *  Output is raw PCM16 @ 24 kHz, which is what the shared `pcmPlayback` graph plays. */
+export function ttsRequest(
+  session: CartesiaSession,
+  voiceId: string,
+  text: string,
+  language: string,
+  contextId: string,
+): string {
+  return JSON.stringify({
+    model_id: session.ttsModel,
+    transcript: text,
+    voice: { mode: 'id', id: voiceId },
+    output_format: { container: 'raw', encoding: 'pcm_s16le', sample_rate: TTS_SAMPLE_RATE },
+    language,
+    context_id: contextId,
+    continue: false,
+  });
+}
+
+/** One Cartesia TTS socket message we model: `chunk` (base64 PCM in `data`), `done`, `error`. */
+export interface TtsFrame {
+  type?: string;
+  contextId?: string;
+  data?: string;
+}
+
+/** Parse a TTS socket message; null for binary / malformed frames. */
+export function parseTtsFrame(raw: unknown): TtsFrame | null {
+  if (typeof raw !== 'string') return null;
+  try {
+    const m = JSON.parse(raw) as { type?: string; context_id?: string; data?: string };
+    return { type: m.type, contextId: m.context_id, data: m.data };
+  } catch {
+    return null;
+  }
+}
+
+/** A running 16 kHz capture graph feeding Cartesia STT. */
+export interface SttGraph {
+  ctx: AudioContext;
+  node: AudioWorkletNode;
+  src: MediaStreamAudioSourceNode;
+}
+
+/** Wire a Web Audio capture graph (16 kHz PCM16) for `stream`'s first audio track; every ~100 ms
+ *  chunk goes to `onChunk`. Resolves null when `cancelled()` turned true while the worklet loaded
+ *  or the track vanished (nothing is left open). Throws on a real failure. */
+export async function openSttGraph(
+  stream: MediaStream,
+  onChunk: (pcm: ArrayBuffer) => void,
+  cancelled: () => boolean = () => false,
+): Promise<SttGraph | null> {
+  const Ctx =
+    window.AudioContext ??
+    (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+  const ctx = new Ctx({ sampleRate: STT_SAMPLE_RATE });
+  await ctx.audioWorklet.addModule(CAPTURE_WORKLET_URL);
+  if (cancelled()) {
+    void ctx.close().catch(() => {});
+    return null;
+  }
+  const track = stream.getAudioTracks()[0];
+  if (!track) {
+    void ctx.close().catch(() => {});
+    return null;
+  }
+  const src = ctx.createMediaStreamSource(new MediaStream([track]));
+  const node = new AudioWorkletNode(ctx, 'pcm-capture-processor');
+  node.port.onmessage = (e: MessageEvent<ArrayBuffer>) => onChunk(e.data);
+  const sink = ctx.createGain();
+  sink.gain.value = 0; // a node only runs when pulled by the graph; route to a muted sink
+  src.connect(node).connect(sink).connect(ctx.destination);
+  return { ctx, node, src };
+}
+
+/** Tear a capture graph down; tolerant of partial graphs and already-closed nodes. */
+export function closeSttGraph(g: { ctx?: AudioContext | null; node?: AudioWorkletNode | null; src?: MediaStreamAudioSourceNode | null }): void {
+  if (g.node) {
+    g.node.port.onmessage = null;
+    try {
+      g.node.disconnect();
+    } catch {
+      /* noop */
+    }
+  }
+  if (g.src) {
+    try {
+      g.src.disconnect();
+    } catch {
+      /* noop */
+    }
+  }
+  if (g.ctx) void g.ctx.close().catch(() => {});
 }
 
 interface Pipeline {
@@ -345,31 +459,17 @@ export class CartesiaManager {
   /** Wire a Web Audio capture graph (16 kHz PCM16) for `stream` into the open STT socket. */
   private async startCapture(peerId: string, pipe: Pipeline, stream: MediaStream): Promise<void> {
     try {
-      const Ctx =
-        window.AudioContext ??
-        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      const ctx = new Ctx({ sampleRate: STT_SAMPLE_RATE });
-      await ctx.audioWorklet.addModule(CAPTURE_WORKLET_URL);
-      if (pipe.stopped) {
-        void ctx.close().catch(() => {});
-        return;
-      }
-      const track = stream.getAudioTracks()[0];
-      if (!track) {
-        void ctx.close().catch(() => {});
-        return;
-      }
-      const src = ctx.createMediaStreamSource(new MediaStream([track]));
-      const node = new AudioWorkletNode(ctx, 'pcm-capture-processor');
-      node.port.onmessage = (e: MessageEvent<ArrayBuffer>) => {
-        if (!pipe.stopped && pipe.ws.readyState === WebSocket.OPEN) pipe.ws.send(e.data);
-      };
-      const sink = ctx.createGain();
-      sink.gain.value = 0; // a node only runs when pulled by the graph; route to a muted sink
-      src.connect(node).connect(sink).connect(ctx.destination);
-      pipe.ctx = ctx;
-      pipe.node = node;
-      pipe.src = src;
+      const graph = await openSttGraph(
+        stream,
+        (pcm) => {
+          if (!pipe.stopped && pipe.ws.readyState === WebSocket.OPEN) pipe.ws.send(pcm);
+        },
+        () => pipe.stopped,
+      );
+      if (!graph) return;
+      pipe.ctx = graph.ctx;
+      pipe.node = graph.node;
+      pipe.src = graph.src;
     } catch (e) {
       console.warn('[cartesia] capture start failed', e);
       this.handleError(peerId, 'media_error', String(e));
@@ -422,17 +522,7 @@ export class CartesiaManager {
     if (!voiceId) return; // no clone and no default → subtitles only
     const contextId = `${peerId}:${this.ttsCounter++}`;
     this.ttsContexts.set(contextId, { speakerId: peerId, seq: 0 });
-    ws.send(
-      JSON.stringify({
-        model_id: session.ttsModel,
-        transcript: text,
-        voice: { mode: 'id', id: voiceId },
-        output_format: { container: 'raw', encoding: 'pcm_s16le', sample_rate: TTS_SAMPLE_RATE },
-        language: this.myLang,
-        context_id: contextId,
-        continue: false,
-      }),
-    );
+    ws.send(ttsRequest(session, voiceId, text, this.myLang, contextId));
   }
 
   /** Open (once) the shared TTS socket and route its chunks back to the right speaker. */
@@ -447,19 +537,14 @@ export class CartesiaManager {
     this.tts = ws;
     const play = this.opts.playAudio ?? ((s, seq, b64) => pcmPlayback.enqueue(s, seq, b64));
     ws.onmessage = (ev) => {
-      if (typeof ev.data !== 'string') return;
-      let msg: { type?: string; context_id?: string; data?: string };
-      try {
-        msg = JSON.parse(ev.data);
-      } catch {
-        return;
-      }
-      const route = msg.context_id ? this.ttsContexts.get(msg.context_id) : undefined;
+      const msg = parseTtsFrame(ev.data);
+      if (!msg) return;
+      const route = msg.contextId ? this.ttsContexts.get(msg.contextId) : undefined;
       if (!route) return;
       if (msg.type === 'chunk' && msg.data) {
         play(route.speakerId, route.seq++, msg.data);
-      } else if ((msg.type === 'done' || msg.type === 'error') && msg.context_id) {
-        this.ttsContexts.delete(msg.context_id);
+      } else if ((msg.type === 'done' || msg.type === 'error') && msg.contextId) {
+        this.ttsContexts.delete(msg.contextId);
       }
     };
     ws.onclose = () => {
@@ -492,22 +577,7 @@ export class CartesiaManager {
     pipe.stopped = true;
     if (pipe.idleTimer) clearTimeout(pipe.idleTimer);
     this.pipelines.delete(peerId);
-    if (pipe.node) {
-      pipe.node.port.onmessage = null;
-      try {
-        pipe.node.disconnect();
-      } catch {
-        /* noop */
-      }
-    }
-    if (pipe.src) {
-      try {
-        pipe.src.disconnect();
-      } catch {
-        /* noop */
-      }
-    }
-    if (pipe.ctx) void pipe.ctx.close().catch(() => {});
+    closeSttGraph(pipe);
     try {
       pipe.ws.onclose = null; // suppress the "unexpected close" path during teardown
       pipe.ws.close();

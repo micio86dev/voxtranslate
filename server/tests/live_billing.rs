@@ -502,9 +502,10 @@ fn seat(rooms: &RoomManager, room: &str, id: &str, lang: &str) {
 }
 
 /// An org pays in whole credits (one cent). A phone that Starts, talks briefly and Stops again
-/// used to carry its fraction inside a meter that died with the Stop, so ten short Starts that
-/// each cost 0.4 of a credit were never charged at all. The carry now lives with the session:
-/// ten of them add up to the four credits they are worth.
+/// used to carry its fraction inside a meter that died with the Stop, so short Starts that each
+/// cost half a credit were never charged at all. The carry lives with the session: four of them,
+/// each a whole interval after the previous opening charge, add up to the two credits they are
+/// worth. (Starts closer together than that share one opening charge: see the loop tests below.)
 #[tokio::test]
 async fn short_start_stop_cycles_of_an_org_seat_add_up_to_what_they_cost() {
     let pool = pool!();
@@ -517,7 +518,7 @@ async fn short_start_stop_cycles_of_an_org_seat_add_up_to_what_they_cost() {
     seat(&rooms, &room, &peer.to_string(), "it");
     seat(&rooms, &room, "the-other-phone", "es");
 
-    for _ in 0..10 {
+    for _ in 0..4 {
         let (end_tx, _end_rx) = mpsc::unbounded_channel();
         let (cancel, cancel_rx) = oneshot::channel();
         let meter = LiveMeter {
@@ -533,9 +534,8 @@ async fn short_start_stop_cycles_of_an_org_seat_add_up_to_what_they_cost() {
             room: room.clone(),
             speaker_lang: "it".into(),
             interval_secs: 1,
-            // 0.4 of a credit per tick.
-            rate_per_second: 0.004,
-            scale_by_target_count: false,
+            // Half a credit per tick.
+            rate_per_second: 0.005,
             low_balance_threshold: 0.0,
             activity: Arc::new(AtomicU64::new(0)),
         };
@@ -544,12 +544,14 @@ async fn short_start_stop_cycles_of_an_org_seat_add_up_to_what_they_cost() {
         tokio::time::sleep(Duration::from_millis(150)).await;
         let _ = cancel.send(());
         run.await.unwrap();
+        // The next Start is more than one interval after this one's opening charge.
+        tokio::time::sleep(Duration::from_millis(950)).await;
     }
 
     assert_eq!(
         credits(&pool, org).await,
-        100 - 4,
-        "ten 0.4-credit Starts are four credits, not zero"
+        100 - 2,
+        "four half-credit Starts are two credits, not zero"
     );
     assert_eq!(
         count(
@@ -606,7 +608,6 @@ async fn credits_of_a_duplicate_tick_go_back_to_the_carry() {
         speaker_lang: "it".into(),
         interval_secs: 1,
         rate_per_second: 0.012,
-        scale_by_target_count: false,
         low_balance_threshold: 0.0,
         activity: activity.clone(),
     };
@@ -637,4 +638,509 @@ async fn credits_of_a_duplicate_tick_go_back_to_the_carry() {
     // duplicates must be recovered by a later tick, so close to floor(8.4)=8 is charged (6 s run: ~7.2)
     let _ = (rows, dup_rows);
     assert!(spent >= 6, "credits of duplicate ticks were lost from the carry: only {spent} charged for ~7.2 credits of audio");
+}
+
+/// A tick whose charge FAILS (database error) must hand the credits taken from the carry back, so
+/// the next successful tick recovers them. Kills the "no put_back on Err" mutant.
+#[tokio::test]
+async fn credits_of_a_failed_tick_go_back_to_the_carry() {
+    let pool = pool!();
+    let owner = make_user(&pool, usd(1.0)).await;
+    let org = make_org(&pool, owner, 1000).await;
+    let (session, peer, call) = make_session(&pool, None, Some(org)).await;
+    let live = Arc::new(LiveState::new(LiveConfig::disabled()));
+    let rooms = Arc::new(RoomManager::new());
+    let room = format!("live-{call}");
+    seat(&rooms, &room, &peer.to_string(), "it");
+    seat(&rooms, &room, "the-other-phone", "es");
+    // 1.2 credits per 1 s tick.
+    // The first ticks fail: a trigger rejects every tick insert of this session, then is dropped.
+    let fname = format!("fail_ticks_{}", session.simple());
+    sqlx::query(&format!("CREATE FUNCTION {fname}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'tick refused'; END $$")).execute(&pool).await.unwrap();
+    sqlx::query(&format!("CREATE TRIGGER {fname} BEFORE INSERT ON live_usage_ticks FOR EACH ROW WHEN (NEW.session_id = '{session}') EXECUTE FUNCTION {fname}()")).execute(&pool).await.unwrap();
+    let activity = Arc::new(AtomicU64::new(0));
+    let (end_tx, _end_rx) = mpsc::unbounded_channel();
+    let (cancel, cancel_rx) = oneshot::channel();
+    let meter = LiveMeter {
+        pool: pool.clone(),
+        live: live.clone(),
+        rooms: rooms.clone(),
+        payer: LivePayer::Org {
+            org_id: org,
+            call_session: call,
+        },
+        session,
+        peer,
+        room: room.clone(),
+        speaker_lang: "it".into(),
+        interval_secs: 1,
+        rate_per_second: 0.012,
+        low_balance_threshold: 0.0,
+        activity: activity.clone(),
+    };
+    let run = tokio::spawn(meter.run(end_tx, cancel_rx));
+    let feeder = {
+        let a = activity.clone();
+        tokio::spawn(async move {
+            loop {
+                a.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+        })
+    };
+    tokio::time::sleep(Duration::from_millis(2500)).await;
+    sqlx::query(&format!("DROP TRIGGER {fname} ON live_usage_ticks"))
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query(&format!("DROP FUNCTION {fname}()"))
+        .execute(&pool)
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(4500)).await;
+    let _ = cancel.send(());
+    run.await.unwrap();
+    feeder.abort();
+    let (rows, spent): (i64, i64) = sqlx::query_as("SELECT count(*), COALESCE(sum(-amount),0)::bigint FROM organization_credits_transactions WHERE session_id=$1 AND type='live_connect'")
+        .bind(call).fetch_one(&pool).await.unwrap();
+    let dup_rows: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM live_usage_ticks WHERE session_id=$1 AND amount = 0",
+    )
+    .bind(session)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    // ~7 intervals of 1.2 credits = 8.4 credits of cost; the three bucketed ticks that were
+    // duplicates must be recovered by a later tick, so close to floor(8.4)=8 is charged (6 s run: ~7.2)
+    let _ = (rows, dup_rows);
+    assert!(spent >= 8, "credits of failed ticks were lost from the carry: only {spent} charged for ~7.2 credits of audio");
+}
+
+// ---- the owner pays for every seat, per DISTINCT target language (spec 0121, S3) --------
+
+/// One participant row for `session`, a guest unless it is the first (the host already exists).
+async fn seat_row(pool: &Pool, session: Uuid, lang: &str) -> Uuid {
+    sqlx::query_scalar(
+        "INSERT INTO live_participants (session_id, role, display_name, lang) VALUES ($1, 'guest', 'G', $2) RETURNING peer_id",
+    )
+    .bind(session)
+    .bind(lang)
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+/// Start one seat's meter, let it take its opening charge, stop it.
+#[allow(clippy::too_many_arguments)]
+async fn opening_charge(
+    pool: &Pool,
+    live: &Arc<LiveState>,
+    rooms: &Arc<RoomManager>,
+    payer: LivePayer,
+    session: Uuid,
+    peer: Uuid,
+    room: &str,
+    lang: &str,
+) {
+    let (end_tx, _end_rx) = mpsc::unbounded_channel();
+    let (cancel, cancel_rx) = oneshot::channel();
+    let meter = LiveMeter {
+        pool: pool.clone(),
+        live: live.clone(),
+        rooms: rooms.clone(),
+        payer,
+        session,
+        peer,
+        room: room.into(),
+        speaker_lang: lang.into(),
+        interval_secs: 1,
+        rate_per_second: 0.01,
+        low_balance_threshold: 0.0,
+        activity: Arc::new(AtomicU64::new(0)),
+    };
+    let run = tokio::spawn(meter.run(end_tx, cancel_rx));
+    tokio::time::sleep(Duration::from_millis(250)).await;
+    let _ = cancel.send(());
+    run.await.unwrap();
+}
+
+/// What each seat's opening charge cost, in streams, for rooms of different languages. The first
+/// language is the host's. `None` = nobody to translate for, so no tick at all.
+const LANGUAGE_MIXES: &[(&[&str], &[Option<u32>])] = &[
+    // The case the product owner described: host it, guests es, es, en. The host's speech goes to
+    // two languages (es, en) however many Spanish speakers there are; a Spanish guest's to two
+    // (it, en); the English guest's to two (it, es).
+    (
+        &["it", "es", "es", "en"],
+        &[Some(2), Some(2), Some(2), Some(2)],
+    ),
+    // Two guests in one language never double a cost: everybody has exactly one other language.
+    (
+        &["it", "es", "es", "es"],
+        &[Some(1), Some(1), Some(1), Some(1)],
+    ),
+    // Four languages: each seat translates into the three others.
+    (
+        &["it", "es", "en", "fr"],
+        &[Some(3), Some(3), Some(3), Some(3)],
+    ),
+    // The host shares a language with a guest: that guest is nobody to translate for.
+    (&["it", "it", "es"], &[Some(1), Some(1), Some(1)]),
+    // Everybody speaks the same language: nothing is translated, nothing is charged.
+    (&["it", "it", "it", "it"], &[None, None, None, None]),
+];
+
+#[tokio::test]
+async fn a_user_pays_one_stream_per_distinct_language_for_every_seat_to_the_last_digit() {
+    let pool = pool!();
+    for (langs, streams) in LANGUAGE_MIXES {
+        let owner = make_user(&pool, usd(5.0)).await;
+        let (session, host, call) = make_session(&pool, Some(owner), None).await;
+        let mut peers = vec![host];
+        for l in &langs[1..] {
+            peers.push(seat_row(&pool, session, l).await);
+        }
+        let live = Arc::new(LiveState::new(LiveConfig::disabled()));
+        let rooms = Arc::new(RoomManager::new());
+        let room = format!("live-{call}");
+        for (p, l) in peers.iter().zip(*langs) {
+            seat(&rooms, &room, &p.to_string(), l);
+        }
+        let payer = user_payer(&pool, owner).await;
+        for (p, l) in peers.iter().zip(*langs) {
+            opening_charge(&pool, &live, &rooms, payer, session, *p, &room, l).await;
+        }
+
+        let mut expected_total = Decimal::ZERO;
+        for ((p, l), n) in peers.iter().zip(*langs).zip(*streams) {
+            let amounts: Vec<Decimal> = sqlx::query_scalar(
+                "SELECT amount FROM live_usage_ticks WHERE session_id = $1 AND peer_id = $2",
+            )
+            .bind(session)
+            .bind(p)
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+            match n {
+                None => assert!(amounts.is_empty(), "{langs:?}: {l} was charged {amounts:?}"),
+                Some(n) => {
+                    let unit = usd(0.01 * 1.0 * f64::from(*n));
+                    assert_eq!(amounts, vec![unit], "{langs:?}: seat speaking {l}");
+                    expected_total += unit;
+                }
+            }
+        }
+        // The owner's balance and ledger moved by exactly the ticks, no more, no less.
+        assert_eq!(
+            balance(&pool, owner).await,
+            usd(5.0) - expected_total,
+            "{langs:?}"
+        );
+        let (rows, ledger): (i64, Decimal) = sqlx::query_as(
+            "SELECT count(*), COALESCE(sum(-amount), 0) FROM credit_transactions WHERE user_id = $1 AND kind = 'usage'",
+        )
+        .bind(owner)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let charged_seats = streams.iter().flatten().count() as i64;
+        assert_eq!((rows, ledger), (charged_seats, expected_total), "{langs:?}");
+    }
+}
+
+#[tokio::test]
+async fn an_org_pays_the_same_streams_in_whole_credits_and_every_seat_has_its_own_tick() {
+    let pool = pool!();
+    let owner = make_user(&pool, usd(1.0)).await;
+    let org = make_org(&pool, owner, 1000).await;
+    let (session, host, call) = make_session(&pool, None, Some(org)).await;
+    // host it, guests es, es, en: two streams each, and a credit is a cent, so 2 credits a seat.
+    let langs = ["it", "es", "es", "en"];
+    let mut peers = vec![host];
+    for l in &langs[1..] {
+        peers.push(seat_row(&pool, session, l).await);
+    }
+    let live = Arc::new(LiveState::new(LiveConfig::disabled()));
+    let rooms = Arc::new(RoomManager::new());
+    let room = format!("live-{call}");
+    for (p, l) in peers.iter().zip(langs) {
+        seat(&rooms, &room, &p.to_string(), l);
+    }
+    let payer = LivePayer::Org {
+        org_id: org,
+        call_session: call,
+    };
+    for (p, l) in peers.iter().zip(langs) {
+        opening_charge(&pool, &live, &rooms, payer, session, *p, &room, l).await;
+    }
+
+    // One tick per seat (the key includes the peer, so four seats never collide), 2 credits each.
+    let ticks: Vec<(Uuid, Decimal)> = sqlx::query_as(
+        "SELECT peer_id, amount FROM live_usage_ticks WHERE session_id = $1 AND payer_kind = 'org'",
+    )
+    .bind(session)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(ticks.len(), 4, "{ticks:?}");
+    for p in &peers {
+        let mine: Vec<_> = ticks.iter().filter(|(id, _)| id == p).collect();
+        assert_eq!(mine.len(), 1);
+        assert_eq!(mine[0].1, Decimal::from(2));
+    }
+    assert_eq!(credits(&pool, org).await, 1000 - 8);
+    assert_eq!(
+        count(
+            &pool,
+            "SELECT -sum(amount)::bigint FROM organization_credits_transactions WHERE session_id = $1 AND type = 'live_connect'",
+            call
+        )
+        .await,
+        8,
+        "the ledger agrees with the wallet"
+    );
+}
+
+// ---- a Start/Stop loop cannot drain the owner (one opening charge per seat per interval) ----
+
+/// One Start of `peer`'s meter that is stopped after `hold`.
+#[allow(clippy::too_many_arguments)]
+async fn one_start(
+    pool: &Pool,
+    live: &Arc<LiveState>,
+    rooms: &Arc<RoomManager>,
+    payer: LivePayer,
+    session: Uuid,
+    peer: Uuid,
+    room: &str,
+    lang: &str,
+    rate: f64,
+    hold: Duration,
+) {
+    let (end_tx, _end_rx) = mpsc::unbounded_channel();
+    let (cancel, cancel_rx) = oneshot::channel();
+    let meter = LiveMeter {
+        pool: pool.clone(),
+        live: live.clone(),
+        rooms: rooms.clone(),
+        payer,
+        session,
+        peer,
+        room: room.into(),
+        speaker_lang: lang.into(),
+        interval_secs: 1,
+        rate_per_second: rate,
+        low_balance_threshold: 0.0,
+        activity: Arc::new(AtomicU64::new(0)),
+    };
+    let run = tokio::spawn(meter.run(end_tx, cancel_rx));
+    tokio::time::sleep(hold).await;
+    let _ = cancel.send(());
+    run.await.unwrap();
+}
+
+async fn tick_amounts(pool: &Pool, session: Uuid, peer: Uuid) -> Vec<Decimal> {
+    sqlx::query_scalar(
+        "SELECT amount FROM live_usage_ticks WHERE session_id = $1 AND peer_id = $2 ORDER BY ts",
+    )
+    .bind(session)
+    .bind(peer)
+    .fetch_all(pool)
+    .await
+    .unwrap()
+}
+
+/// A guest that Starts and Stops 200 times in about a second used to pay a full opening charge
+/// each time (every Start has a key of its own): about 40 a second, at the host's expense, for
+/// nothing translated. Now the seat takes one opening charge per interval; the owner's balance
+/// and ledger move by exactly what the ticks say.
+#[tokio::test]
+async fn a_start_stop_loop_costs_a_user_one_opening_charge_per_interval() {
+    let pool = pool!();
+    let owner = make_user(&pool, usd(5.0)).await;
+    let (session, host, call) = make_session(&pool, Some(owner), None).await;
+    let guest = seat_row(&pool, session, "es").await;
+    let live = Arc::new(LiveState::new(LiveConfig::disabled()));
+    let rooms = Arc::new(RoomManager::new());
+    let room = format!("live-{call}");
+    seat(&rooms, &room, &host.to_string(), "it");
+    seat(&rooms, &room, &guest.to_string(), "es");
+    let payer = user_payer(&pool, owner).await;
+
+    let started = std::time::Instant::now();
+    for _ in 0..200 {
+        one_start(
+            &pool,
+            &live,
+            &rooms,
+            payer,
+            session,
+            guest,
+            &room,
+            "es",
+            0.01,
+            Duration::from_millis(8),
+        )
+        .await;
+    }
+    let took = started.elapsed();
+
+    let unit = usd(0.01);
+    let ticks = tick_amounts(&pool, session, guest).await;
+    // One opening charge per started interval of the loop, never one per Start.
+    let most = 1 + took.as_secs() as usize;
+    assert!(
+        (1..=most).contains(&ticks.len()),
+        "{} opening charges in {took:?}",
+        ticks.len()
+    );
+    assert!(ticks.iter().all(|a| *a == unit), "{ticks:?}");
+    let paid = unit * Decimal::from(ticks.len() as i64);
+    assert_eq!(balance(&pool, owner).await, usd(5.0) - paid);
+    let (rows, ledger): (i64, Decimal) = sqlx::query_as(
+        "SELECT count(*), COALESCE(sum(-amount), 0) FROM credit_transactions WHERE user_id = $1 AND kind = 'usage'",
+    )
+    .bind(owner)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!((rows, ledger), (ticks.len() as i64, paid));
+}
+
+/// The same loop against an organisation's whole-credit wallet.
+#[tokio::test]
+async fn a_start_stop_loop_costs_an_org_one_opening_charge_per_interval() {
+    let pool = pool!();
+    let owner = make_user(&pool, usd(1.0)).await;
+    let org = make_org(&pool, owner, 1000).await;
+    let (session, host, call) = make_session(&pool, None, Some(org)).await;
+    let guest = seat_row(&pool, session, "es").await;
+    let live = Arc::new(LiveState::new(LiveConfig::disabled()));
+    let rooms = Arc::new(RoomManager::new());
+    let room = format!("live-{call}");
+    seat(&rooms, &room, &host.to_string(), "it");
+    seat(&rooms, &room, &guest.to_string(), "es");
+    let payer = LivePayer::Org {
+        org_id: org,
+        call_session: call,
+    };
+
+    let started = std::time::Instant::now();
+    for _ in 0..200 {
+        one_start(
+            &pool,
+            &live,
+            &rooms,
+            payer,
+            session,
+            guest,
+            &room,
+            "es",
+            0.01, // one credit a tick
+            Duration::from_millis(8),
+        )
+        .await;
+    }
+    let most = 1 + started.elapsed().as_secs() as i64;
+
+    let ticks = tick_amounts(&pool, session, guest).await;
+    assert!(
+        (1..=most as usize).contains(&ticks.len()),
+        "{} opening charges",
+        ticks.len()
+    );
+    assert!(ticks.iter().all(|a| *a == Decimal::from(1)), "{ticks:?}");
+    assert_eq!(credits(&pool, org).await, 1000 - ticks.len() as i32);
+    assert_eq!(
+        count(
+            &pool,
+            "SELECT -sum(amount)::bigint FROM organization_credits_transactions WHERE session_id = $1 AND type = 'live_connect'",
+            call
+        )
+        .await,
+        ticks.len() as i64,
+        "the ledger agrees with the wallet"
+    );
+}
+
+/// What a Start/Stop that is NOT a loop pays: the first one, and each one a whole interval after
+/// the previous opening charge. A pair shorter than an interval is not free the first time.
+#[tokio::test]
+async fn honest_starts_an_interval_apart_each_pay_and_a_short_first_one_is_not_free() {
+    let pool = pool!();
+    let owner = make_user(&pool, usd(5.0)).await;
+    let (session, host, call) = make_session(&pool, Some(owner), None).await;
+    let guest = seat_row(&pool, session, "es").await;
+    let live = Arc::new(LiveState::new(LiveConfig::disabled()));
+    let rooms = Arc::new(RoomManager::new());
+    let room = format!("live-{call}");
+    seat(&rooms, &room, &host.to_string(), "it");
+    seat(&rooms, &room, &guest.to_string(), "es");
+    let payer = user_payer(&pool, owner).await;
+    let go = |hold| {
+        one_start(
+            &pool, &live, &rooms, payer, session, guest, &room, "es", 0.01, hold,
+        )
+    };
+
+    // A very short first Start still pays its opening charge.
+    go(Duration::from_millis(120)).await;
+    assert_eq!(tick_amounts(&pool, session, guest).await.len(), 1);
+    // Another right after, inside the interval, does not.
+    go(Duration::from_millis(120)).await;
+    assert_eq!(tick_amounts(&pool, session, guest).await.len(), 1);
+    // One a whole interval after the first opening charge pays again.
+    tokio::time::sleep(Duration::from_millis(1000)).await;
+    go(Duration::from_millis(120)).await;
+    let ticks = tick_amounts(&pool, session, guest).await;
+    assert_eq!(ticks, vec![usd(0.01), usd(0.01)]);
+    assert_eq!(balance(&pool, owner).await, usd(5.0) - usd(0.02));
+    // Seats are independent: the host's first Start is not throttled by the guest's.
+    one_start(
+        &pool,
+        &live,
+        &rooms,
+        payer,
+        session,
+        host,
+        &room,
+        "it",
+        0.01,
+        Duration::from_millis(120),
+    )
+    .await;
+    assert_eq!(tick_amounts(&pool, session, host).await.len(), 1);
+}
+
+/// A Start in a room with nobody to translate for takes no opening charge, and does not use up
+/// the seat's one per interval either: the Start right after, once somebody has joined, pays.
+#[tokio::test]
+async fn a_start_in_an_empty_room_does_not_use_up_the_opening_charge() {
+    let pool = pool!();
+    let owner = make_user(&pool, usd(5.0)).await;
+    let (session, host, call) = make_session(&pool, Some(owner), None).await;
+    let live = Arc::new(LiveState::new(LiveConfig::disabled()));
+    let rooms = Arc::new(RoomManager::new());
+    let room = format!("live-{call}");
+    seat(&rooms, &room, &host.to_string(), "it");
+    let payer = user_payer(&pool, owner).await;
+    let go = || {
+        one_start(
+            &pool,
+            &live,
+            &rooms,
+            payer,
+            session,
+            host,
+            &room,
+            "it",
+            0.01,
+            Duration::from_millis(150),
+        )
+    };
+    go().await;
+    assert!(tick_amounts(&pool, session, host).await.is_empty());
+    seat(&rooms, &room, "someone-arrives", "es");
+    go().await;
+    assert_eq!(tick_amounts(&pool, session, host).await, vec![usd(0.01)]);
 }

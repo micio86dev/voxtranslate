@@ -93,6 +93,7 @@ struct SessionRow {
     project_name: Option<String>,
     guest_name: Option<String>,
     guest_lang: Option<String>,
+    guest_count: i64,
     staff_name: Option<String>,
     duration_secs: Option<i64>,
     credits: i64,
@@ -112,7 +113,10 @@ impl SessionRow {
             "host_lang": self.host_lang,
             "desk": self.desk_id.map(|id| json!({ "id": id, "name": self.desk_name, "location_label": self.location_label })),
             "project": self.project_id.map(|id| json!({ "id": id, "name": self.project_name })),
+            // The first guest to join, and how many there are: a conversation can hold up to
+            // three, and a column of a table has room for one name.
             "guest": json!({ "name": self.guest_name, "lang": self.guest_lang }),
+            "guest_count": self.guest_count,
             "staff_name": self.staff_name,
             "credits": self.credits,
             "has_transcript": self.has_transcript,
@@ -124,8 +128,11 @@ const SESSION_SELECT: &str = "
     SELECT s.id, s.status, s.created_at, s.started_at, s.ended_at, s.end_reason, s.host_lang,
            s.desk_id, d.name AS desk_name, d.location_label,
            s.project_id, p.name AS project_name,
-           (SELECT display_name FROM live_participants WHERE session_id = s.id AND role = 'guest') AS guest_name,
-           (SELECT lang FROM live_participants WHERE session_id = s.id AND role = 'guest') AS guest_lang,
+           (SELECT display_name FROM live_participants WHERE session_id = s.id AND role = 'guest'
+             ORDER BY joined_at, peer_id LIMIT 1) AS guest_name,
+           (SELECT lang FROM live_participants WHERE session_id = s.id AND role = 'guest'
+             ORDER BY joined_at, peer_id LIMIT 1) AS guest_lang,
+           (SELECT count(*) FROM live_participants WHERE session_id = s.id AND role = 'guest') AS guest_count,
            (SELECT display_name FROM live_participants WHERE session_id = s.id AND role IN ('host', 'staff')) AS staff_name,
            CASE WHEN s.started_at IS NULL THEN NULL
                 ELSE extract(epoch FROM (COALESCE(s.ended_at, now()) - s.started_at))::bigint END AS duration_secs,
@@ -136,7 +143,7 @@ const SESSION_SELECT: &str = "
     LEFT JOIN live_desks d ON d.id = s.desk_id
     LEFT JOIN projects p ON p.id = s.project_id";
 
-/// A member sees a conversation only if they sat in one of its two seats.
+/// A member sees a conversation only if they sat in one of its seats.
 pub(super) const MEMBER_VISIBLE: &str =
     "EXISTS (SELECT 1 FROM live_participants mp WHERE mp.session_id = s.id AND mp.user_id = $2)";
 

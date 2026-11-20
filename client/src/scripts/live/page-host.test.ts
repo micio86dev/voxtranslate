@@ -31,12 +31,18 @@ vi.mock('../auth', () => ({
 const api = {
   createSession: vi.fn(),
   getSession: vi.fn(),
+  listEngines: vi.fn(),
 };
 vi.mock('./api', () => ({
   createSession: (...a: unknown[]) => api.createSession(...a),
   getSession: (...a: unknown[]) => api.getSession(...a),
+  listEngines: (...a: unknown[]) => api.listEngines(...a),
 }));
 const unlock = vi.fn();
+const prep = { prepareVoice: vi.fn() };
+vi.mock('./voice-prep', () => ({ prepareVoice: (...a: unknown[]) => prep.prepareVoice(...a) }));
+const restricted = { value: false };
+vi.mock('../restricted-net', () => ({ isRestrictedNetwork: async () => restricted.value }));
 vi.mock('../pcm-playback', () => ({ pcmPlayback: { unlock: () => unlock() } }));
 const toast = vi.fn();
 vi.mock('../toast', () => ({ toast: (...a: unknown[]) => toast(...a) }));
@@ -57,7 +63,7 @@ vi.mock('./room', () => ({
 }));
 
 import { mountLiveHost } from './page-host';
-import { STORAGE_KEY } from './session-store';
+import { STORAGE_KEY, TIER_PREF_KEY } from './session-store';
 
 const CREATED = {
   session_id: 's1',
@@ -79,6 +85,12 @@ beforeEach(() => {
   Object.assign(auth, { billing: true, loggedIn: true, user: { language: 'it', balance: 9 } });
   api.createSession.mockReset();
   api.getSession.mockReset();
+  // The tier list is an extra: by default the call fails and the host just gets Standard.
+  api.listEngines.mockReset();
+  api.listEngines.mockResolvedValue({ ok: false, status: 0, code: 'network' });
+  localStorage.clear();
+  restricted.value = false;
+  prep.prepareVoice.mockReset();
   unlock.mockReset();
   toast.mockReset();
   qrDataUrl.mockClear();
@@ -110,6 +122,60 @@ describe('setup', () => {
     expect(($('lh-transcript') as HTMLInputElement).checked).toBe(false);
   });
 
+  describe('guests control', () => {
+    const radios = () => Array.from(document.querySelectorAll<HTMLInputElement>('input[name="lh-guests"]'));
+    const choose = (n: number) => {
+      const r = radios().find((x) => x.value === String(n)) as HTMLInputElement;
+      r.checked = true;
+      r.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+
+    it('offers 1, 2 or 3 guests as a labelled group, defaulting to 1, with the one-line explanation', async () => {
+      await mountLiveHost();
+      expect(radios().map((r) => r.value)).toEqual(['1', '2', '3']);
+      expect(radios().filter((r) => r.checked).map((r) => r.value)).toEqual(['1']);
+      const group = $('lh-guests-field');
+      expect(group.tagName).toBe('FIELDSET');
+      expect(group.querySelector('legend')?.textContent).toBe(EN.liveGuests);
+      expect($('lh-guests-hint').textContent).toBe(EN.liveGuestsHintOne);
+    });
+
+    it('updates the explanation with the chosen number', async () => {
+      await mountLiveHost();
+      choose(3);
+      expect($('lh-guests-hint').textContent).toBe(EN.liveGuestsHint.replace('{max}', '3'));
+    });
+
+    it('sends the chosen number and remembers it with the stored session', async () => {
+      api.createSession.mockResolvedValue({ ok: true, data: { ...CREATED, max_guests: 3 } });
+      await mountLiveHost();
+      choose(3);
+      $('lh-create').click();
+      await flush();
+      expect(api.createSession).toHaveBeenCalledWith({ lang: 'it', saveTranscript: false, maxGuests: 3 });
+      expect(rooms[0].session).toMatchObject({ maxGuests: 3 });
+      expect(JSON.parse(sessionStorage.getItem(STORAGE_KEY) ?? '{}').maxGuests).toBe(3);
+    });
+
+    it('treats a missing or odd value as 1', async () => {
+      api.createSession.mockResolvedValue({ ok: true, data: CREATED });
+      await mountLiveHost();
+      radios().forEach((r) => (r.checked = false));
+      $('lh-create').click();
+      await flush();
+      expect(api.createSession).toHaveBeenCalledWith({ lang: 'it', saveTranscript: false, maxGuests: 1 });
+    });
+
+    it('shows a friendly message for bad_max_guests', async () => {
+      api.createSession.mockResolvedValue({ ok: false, status: 400, code: 'bad_max_guests' });
+      await mountLiveHost();
+      $('lh-create').click();
+      await flush();
+      expect($('lh-status').hidden).toBe(false);
+      expect($('lh-status').textContent).toBe(EN.liveErrBadGuests);
+    });
+  });
+
   it('creates a session with the chosen language and the transcript flag, then shows the invite', async () => {
     api.createSession.mockResolvedValue({ ok: true, data: CREATED });
     await mountLiveHost();
@@ -117,7 +183,7 @@ describe('setup', () => {
     $('lh-create').click();
     expect(unlock).toHaveBeenCalledTimes(1); // inside the click gesture, before the request
     await flush();
-    expect(api.createSession).toHaveBeenCalledWith({ lang: 'it', saveTranscript: true });
+    expect(api.createSession).toHaveBeenCalledWith({ lang: 'it', saveTranscript: true, maxGuests: 1 });
     expect($('lh-setup').hidden).toBe(true);
     expect($('lh-hero').hidden).toBe(true);
     expect($('lh-session').hidden).toBe(false);
@@ -143,6 +209,7 @@ describe('setup', () => {
       myPeerId: 'peer-a',
       wsPath: '/ws/live',
       inviteUrl: CREATED.invite_url,
+      maxGuests: 1,
     });
   });
 
@@ -154,10 +221,11 @@ describe('setup', () => {
     const ctx = (over: Partial<LiveContext>): LiveContext => ({ ...initialContext(), ...over });
     rooms[0].onState(ctx({ phase: 'waiting_peer' }));
     expect($('lh-invite').hidden).toBe(false);
-    rooms[0].onState(ctx({ phase: 'live', partner: { peerId: 'b', name: 'B', lang: 'es', muted: false } }));
+    rooms[0].onState(ctx({ phase: 'live', partners: [{ peerId: 'b', name: 'B', lang: 'es', muted: false }] }));
     expect($('lh-invite').hidden).toBe(true);
+    // A pair has one seat and the guest took it: the link has nothing left to offer, even if they drop.
     rooms[0].onState(ctx({ phase: 'waiting_peer' }));
-    expect($('lh-invite').hidden).toBe(false);
+    expect($('lh-invite').hidden).toBe(true);
     rooms[0].onState(ctx({ phase: 'ended', endReason: 'ended_by_me' }));
     expect($('lh-invite').hidden).toBe(true);
   });
@@ -213,6 +281,150 @@ describe('setup', () => {
   });
 });
 
+describe('translation tier', () => {
+  const LIST = {
+    default: 'standard',
+    engines: [
+      { id: 'standard', display_name: 'Standard', tier: 'standard', description: 'd', rate_per_minute: 0.0045, min_balance: 0.05, available: true, scales_per_language: true, client_direct: false },
+      { id: 'gemini_live_translate', display_name: 'Premium', tier: 'premium', description: 'd', rate_per_minute: 0.03, min_balance: 0.4, available: true, scales_per_language: true, client_direct: false },
+    ],
+  };
+  const radios = () => Array.from(document.querySelectorAll<HTMLInputElement>('#lh-tiers input[type="radio"]'));
+  const pick = (id: string) => (radios().find((r) => r.value === id) as HTMLInputElement).click();
+
+  it('has a labelled radio group between the language and the guests, filled from the server list', async () => {
+    api.listEngines.mockResolvedValue({ ok: true, data: LIST });
+    await mountLiveHost();
+    await flush();
+    const group = $('lh-tiers');
+    expect(group.getAttribute('role')).toBe('radiogroup');
+    expect(document.getElementById(group.getAttribute('aria-labelledby') as string)?.textContent).toBe(EN.liveTier);
+    expect(radios().map((r) => r.value)).toEqual(['standard', 'gemini_live_translate']);
+    const field = $('lh-tier-field');
+    expect(field.previousElementSibling?.contains($('lh-lang'))).toBe(true);
+    expect(field.nextElementSibling?.id).toBe('lh-guests-field');
+  });
+
+  it('asks the server for the list when the setup opens, and not before the gates pass', async () => {
+    auth.loggedIn = false;
+    await mountLiveHost();
+    expect(api.listEngines).not.toHaveBeenCalled();
+    auth.loggedIn = true;
+    await mountLiveHost();
+    expect(api.listEngines).toHaveBeenCalledTimes(1);
+  });
+
+  it('while the list loads and when it fails: Standard only, selected, no error shown', async () => {
+    let resolve: (v: unknown) => void = () => {};
+    api.listEngines.mockReturnValue(new Promise((r) => (resolve = r)));
+    await mountLiveHost();
+    expect(radios().map((r) => r.value)).toEqual(['standard']);
+    resolve({ ok: false, status: 500, code: 'server_error' });
+    await flush();
+    expect(radios().map((r) => r.value)).toEqual(['standard']);
+    expect(radios()[0].checked).toBe(true);
+    expect($('lh-status').hidden).toBe(true);
+  });
+
+  it('ignores a malformed list the same way', async () => {
+    api.listEngines.mockResolvedValue({ ok: true, data: { engines: 'nope' } });
+    await mountLiveHost();
+    await flush();
+    expect(radios().map((r) => r.value)).toEqual(['standard']);
+  });
+
+  it('creates on Standard without sending an engine', async () => {
+    api.listEngines.mockResolvedValue({ ok: true, data: LIST });
+    api.createSession.mockResolvedValue({ ok: true, data: CREATED });
+    await mountLiveHost();
+    await flush();
+    $('lh-create').click();
+    await flush();
+    expect(api.createSession.mock.calls[0][0]).not.toHaveProperty('engine');
+    expect(rooms[0].session).not.toHaveProperty('engine');
+  });
+
+  it('creates on the chosen tier, remembers the choice, and hands the confirmed tier to the room', async () => {
+    api.listEngines.mockResolvedValue({ ok: true, data: LIST });
+    api.createSession.mockResolvedValue({ ok: true, data: { ...CREATED, engine: 'gemini_live_translate' } });
+    await mountLiveHost();
+    await flush();
+    pick('gemini_live_translate');
+    expect(localStorage.getItem(TIER_PREF_KEY)).toBe('gemini_live_translate');
+    $('lh-create').click();
+    await flush();
+    expect(api.createSession).toHaveBeenCalledWith({ lang: 'it', saveTranscript: false, maxGuests: 1, engine: 'gemini_live_translate' });
+    expect(rooms[0].session).toMatchObject({ engine: 'gemini_live_translate' });
+    expect(JSON.parse(sessionStorage.getItem(STORAGE_KEY) ?? '{}').engine).toBe('gemini_live_translate');
+  });
+
+  it('the tier the server confirms wins over the one asked for (a fallback to Standard)', async () => {
+    api.listEngines.mockResolvedValue({ ok: true, data: LIST });
+    api.createSession.mockResolvedValue({ ok: true, data: { ...CREATED, engine: 'standard' } });
+    await mountLiveHost();
+    await flush();
+    pick('gemini_live_translate');
+    $('lh-create').click();
+    await flush();
+    expect(rooms[0].session).toMatchObject({ engine: 'standard' });
+  });
+
+  it('opens on the remembered tier next time, when it is still offered', async () => {
+    localStorage.setItem(TIER_PREF_KEY, 'gemini_live_translate');
+    api.listEngines.mockResolvedValue({ ok: true, data: LIST });
+    await mountLiveHost();
+    await flush();
+    expect(radios().find((r) => r.checked)?.value).toBe('gemini_live_translate');
+  });
+
+  it('disables a tier the cached balance cannot start, with the reason', async () => {
+    auth.user = { language: 'it', balance: 0.1 };
+    api.listEngines.mockResolvedValue({ ok: true, data: LIST });
+    await mountLiveHost();
+    await flush();
+    const premium = radios().find((r) => r.value === 'gemini_live_translate') as HTMLInputElement;
+    expect(premium.disabled).toBe(true);
+    expect(document.getElementById(premium.getAttribute('aria-describedby') as string)?.textContent).toBe('Needs at least $0.40 in your balance.');
+  });
+
+  it.each([
+    ['engine_not_available', 400, EN.liveErrEngineNotAvailable],
+    ['engine_not_supported_yet', 400, EN.liveErrEngineSoon],
+    ['engine_not_allowed', 403, EN.liveErrEngineNotAllowed],
+    ['live_busy', 503, EN.liveErrBusyTier],
+  ])('shows a friendly message for %s on a paid tier', async (code, status, text) => {
+    api.listEngines.mockResolvedValue({ ok: true, data: LIST });
+    api.createSession.mockResolvedValue({ ok: false, status, code });
+    await mountLiveHost();
+    await flush();
+    pick('gemini_live_translate');
+    $('lh-create').click();
+    await flush();
+    expect($('lh-status').textContent).toBe(text);
+    expect($('lh-setup').hidden).toBe(false);
+  });
+
+  it('a 402 on a paid tier still shows the buy-credits path', async () => {
+    api.listEngines.mockResolvedValue({ ok: true, data: LIST });
+    api.createSession.mockResolvedValue({ ok: false, status: 402, code: 'insufficient_balance' });
+    await mountLiveHost();
+    await flush();
+    pick('gemini_live_translate');
+    $('lh-create').click();
+    await flush();
+    expect($('lh-status').textContent).toBe(EN.liveErrInsufficient);
+    expect($('lh-buy').hidden).toBe(false);
+  });
+
+  it('a live_busy on Standard keeps the plain "try again" message', async () => {
+    api.createSession.mockResolvedValue({ ok: false, status: 503, code: 'live_busy' });
+    await mountLiveHost();
+    $('lh-create').click();
+    await flush();
+    expect($('lh-status').textContent).toBe(EN.liveErrBusy);
+  });
+});
+
 describe('invite panel', () => {
   async function created() {
     api.createSession.mockResolvedValue({ ok: true, data: CREATED });
@@ -264,6 +476,130 @@ describe('invite panel', () => {
   });
 });
 
+describe('invite panel with several guests', () => {
+  const ctx = (over: Partial<LiveContext>): LiveContext => ({ ...initialContext(), ...over });
+  const guest = (id: string, name = id) => ({ peerId: id, name, lang: 'es', muted: false });
+  async function created(max: number) {
+    api.createSession.mockResolvedValue({ ok: true, data: { ...CREATED, max_guests: max } });
+    await mountLiveHost();
+    const r = Array.from(document.querySelectorAll<HTMLInputElement>('input[name="lh-guests"]')).find((x) => x.value === String(max))!;
+    r.checked = true;
+    r.dispatchEvent(new Event('change', { bubbles: true }));
+    $('lh-create').click();
+    await flush();
+  }
+
+  it('says how many guests joined, and uses the several-guest wording', async () => {
+    await created(3);
+    expect($('lh-seats').hidden).toBe(false);
+    expect($('lh-seats').textContent).toBe('0 of 3 guests joined');
+    expect($('lh-invite').querySelector('[data-i18n="liveInviteTitleMulti"]')).not.toBeNull();
+    expect($('lh-invite').querySelector('[data-i18n="liveInviteExpiresMulti"]')).not.toBeNull();
+    rooms[0].onState(ctx({ phase: 'live', partners: [guest('b')] }));
+    expect($('lh-seats').textContent).toBe('1 of 3 guests joined');
+    rooms[0].onState(ctx({ phase: 'live', partners: [guest('b'), guest('c')] }));
+    expect($('lh-seats').textContent).toBe('2 of 3 guests joined');
+  });
+
+  it('a pair keeps today\'s look: no seats line, the original invite wording', async () => {
+    await created(1);
+    expect($('lh-seats').hidden).toBe(true);
+    expect($('lh-invite').querySelector('[data-i18n="liveInviteExpires"]')).not.toBeNull();
+  });
+
+  it('is open while nobody is here, collapses to a toggle once a guest joined, and re-opens on demand', async () => {
+    await created(3);
+    rooms[0].onState(ctx({ phase: 'waiting_peer' }));
+    expect($('lh-invite').hidden).toBe(false);
+    expect($('lh-invite-body').hidden).toBe(false);
+    expect($('lh-invite-toggle').hidden).toBe(true);
+
+    rooms[0].onState(ctx({ phase: 'live', partners: [guest('b')] }));
+    expect($('lh-invite').hidden).toBe(false);
+    expect($('lh-invite-body').hidden).toBe(true);
+    const toggle = $('lh-invite-toggle') as HTMLButtonElement;
+    expect(toggle.hidden).toBe(false);
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(toggle.getAttribute('aria-controls')).toBe('lh-invite-body');
+    expect(toggle.textContent).toBe(EN.liveInviteMore);
+
+    toggle.click();
+    expect($('lh-invite-body').hidden).toBe(false);
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    expect(toggle.textContent).toBe(EN.liveInviteHide);
+    // The link is still there to copy.
+    expect(($('lh-link') as HTMLInputElement).value).toBe(CREATED.invite_url);
+
+    toggle.click();
+    expect($('lh-invite-body').hidden).toBe(true);
+  });
+
+  it('re-opens by itself when the last guest leaves while seats remain', async () => {
+    await created(3);
+    rooms[0].onState(ctx({ phase: 'live', partners: [guest('b')] }));
+    expect($('lh-invite-body').hidden).toBe(true);
+    rooms[0].onState(ctx({ phase: 'waiting_peer' }));
+    expect($('lh-invite').hidden).toBe(false);
+    expect($('lh-invite-body').hidden).toBe(false);
+    expect($('lh-invite-toggle').hidden).toBe(true);
+  });
+
+  it('is hidden once every seat is taken, even when somebody drops, and "N of M" stays', async () => {
+    await created(2);
+    rooms[0].onState(ctx({ phase: 'live', partners: [guest('b'), guest('c')] }));
+    expect($('lh-invite').hidden).toBe(true);
+    rooms[0].onState(ctx({ phase: 'live', partners: [guest('c')] }));
+    expect($('lh-invite').hidden).toBe(true);
+    expect($('lh-seats').textContent).toBe('2 of 2 guests joined');
+  });
+
+  it('hides the whole panel and the count when the conversation is over', async () => {
+    await created(3);
+    rooms[0].onState(ctx({ phase: 'live', partners: [guest('b')] }));
+    rooms[0].onState(ctx({ phase: 'ended', endReason: 'ended_by_me' }));
+    expect($('lh-invite').hidden).toBe(true);
+    expect($('lh-seats').hidden).toBe(true);
+  });
+
+  it('a reload restores the seats from the server: who already took one, and the size', async () => {
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ sessionId: 's9', token: 'T9', role: 'host', myLang: 'es', myPeerId: 'p9', wsPath: '/ws/live', inviteUrl: 'https://app.test/lc/X' }));
+    api.getSession.mockResolvedValue({
+      ok: true,
+      data: {
+        session: {
+          status: 'active',
+          max_guests: 3,
+          participants: [
+            { peer_id: 'p9', role: 'host' },
+            { peer_id: 'g1', role: 'guest' },
+            { peer_id: 'g2', role: 'guest' },
+          ],
+        },
+        you: { role: 'host' },
+      },
+    });
+    await mountLiveHost();
+    expect(rooms[0].session).toMatchObject({ maxGuests: 3 });
+    expect($('lh-seats').textContent).toBe('2 of 3 guests joined');
+    rooms[0].onState(ctx({ phase: 'waiting_peer' }));
+    expect($('lh-invite').hidden).toBe(false);
+    rooms[0].onState(ctx({ phase: 'live', partners: [guest('g1'), guest('g2'), guest('g3')] }));
+    expect($('lh-seats').textContent).toBe('3 of 3 guests joined');
+    expect($('lh-invite').hidden).toBe(true);
+  });
+
+  it('keeps the copy button working while collapsed content is reopened', async () => {
+    const writeText = vi.fn(async () => {});
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    await created(3);
+    rooms[0].onState(ctx({ phase: 'live', partners: [guest('b')] }));
+    $('lh-invite-toggle').click();
+    $('lh-copy').click();
+    await flush();
+    expect(writeText).toHaveBeenCalledWith(CREATED.invite_url);
+  });
+});
+
 describe('reload', () => {
   const STORED = { sessionId: 's9', token: 'T9', role: 'host', myLang: 'es', myPeerId: 'p9', wsPath: '/ws/live', inviteUrl: 'https://app.test/lc/X' };
 
@@ -298,10 +634,219 @@ describe('reload', () => {
     expect(rooms).toHaveLength(0);
   });
 
+  it('a reload takes the tier from the server: it may have fallen back to Standard', async () => {
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ ...STORED, engine: 'gemini_live_translate' }));
+    api.getSession.mockResolvedValue({ ok: true, data: { session: { status: 'active', engine: 'standard' }, you: { role: 'host' } } });
+    await mountLiveHost();
+    expect(rooms[0].session).toMatchObject({ engine: 'standard' });
+  });
+
+  it('a session stored before tiers existed rejoins with no engine', async () => {
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(STORED));
+    api.getSession.mockResolvedValue({ ok: true, data: { session: { status: 'active' }, you: { role: 'host' } } });
+    await mountLiveHost();
+    expect(rooms[0].session).not.toHaveProperty('engine');
+  });
+
   it('ignores a stored GUEST session on the host page', async () => {
     sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ ...STORED, role: 'guest' }));
     await mountLiveHost();
     expect(api.getSession).not.toHaveBeenCalled();
     expect($('lh-setup').hidden).toBe(false);
+  });
+});
+
+describe('Enhanced tier and the host voice', () => {
+  const eng = (id: string, over: Record<string, unknown> = {}) => ({
+    id,
+    display_name: id,
+    tier: id === 'cartesia' ? 'enhanced' : id === 'standard' ? 'standard' : 'premium',
+    description: 'd',
+    rate_per_minute: 0.01,
+    min_balance: 0.05,
+    available: true,
+    scales_per_language: true,
+    client_direct: id === 'cartesia',
+    ...over,
+  });
+  const clone = (available: boolean, cloning_enabled = true, has_clone = available) => ({ available, cloning_enabled, has_clone });
+  const list = (voice = clone(true)) => ({ default: 'standard', engines: [eng('standard'), eng('cartesia', { voice_clone: voice }), eng('gemini_live_translate')] });
+  const radios = () => Array.from(document.querySelectorAll<HTMLInputElement>('#lh-tiers input[type="radio"]'));
+  const pick = (id: string) => (radios().find((r) => r.value === id) as HTMLInputElement).click();
+  const box = () => $('lh-voice-clone') as HTMLInputElement;
+  const setup = async (data: unknown) => {
+    api.listEngines.mockResolvedValue({ ok: true, data });
+    await mountLiveHost();
+    await flush();
+  };
+
+  it('offers the Enhanced card between Standard and Premium', async () => {
+    await setup(list());
+    expect(radios().map((r) => r.value)).toEqual(['standard', 'cartesia', 'gemini_live_translate']);
+  });
+
+  it('hides Enhanced on a restricted network (and creating then sends no Enhanced)', async () => {
+    restricted.value = true;
+    localStorage.setItem(TIER_PREF_KEY, 'cartesia');
+    api.createSession.mockResolvedValue({ ok: true, data: CREATED });
+    await setup(list());
+    expect(radios().map((r) => r.value)).toEqual(['standard', 'gemini_live_translate']);
+    $('lh-create').click();
+    await flush();
+    expect(api.createSession.mock.calls[0][0]).not.toHaveProperty('engine');
+  });
+
+  it('does not show Enhanced when the server does not list it', async () => {
+    await setup({ default: 'standard', engines: [eng('standard'), eng('gemini_live_translate')] });
+    expect(radios().map((r) => r.value)).toEqual(['standard', 'gemini_live_translate']);
+  });
+
+  describe('consent checkbox', () => {
+    it('is hidden until Enhanced is the picked card, and then shows the explicit consent sentence in its label', async () => {
+      await setup(list());
+      expect($('lh-voice-field').hidden).toBe(true);
+      pick('cartesia');
+      expect($('lh-voice-field').hidden).toBe(false);
+      expect($('lh-voice-field').textContent).toContain(EN.liveVoiceClone);
+      expect($('lh-voice-field').textContent).toContain(EN.liveVoiceCloneConsent);
+      expect(EN.liveVoiceCloneConsent).toMatch(/guests' phones receive the identifier/);
+      const label = document.querySelector('label[for="lh-voice-clone"]') as HTMLElement;
+      expect(label.contains(box())).toBe(true);
+      expect(label.textContent).toContain(EN.liveVoiceCloneConsent);
+    });
+
+    it('is never pre-checked, and is hidden again (and cleared) when another card is picked', async () => {
+      await setup(list());
+      pick('cartesia');
+      expect(box().checked).toBe(false);
+      box().checked = true;
+      pick('gemini_live_translate');
+      expect($('lh-voice-field').hidden).toBe(true);
+      pick('cartesia');
+      expect(box().checked).toBe(false);
+    });
+
+    it('is not offered when the server says no clone can be used and cloning is off', async () => {
+      await setup(list(clone(false, false, false)));
+      pick('cartesia');
+      expect($('lh-voice-field').hidden).toBe(true);
+      expect($('lh-voiceprep').hidden).toBe(true);
+    });
+
+    it('create sends voice_clone only when it is ticked on the Enhanced card', async () => {
+      api.createSession.mockResolvedValue({ ok: true, data: { ...CREATED, engine: 'cartesia', voice_clone: true } });
+      await setup(list());
+      pick('cartesia');
+      box().checked = true;
+      $('lh-create').click();
+      await flush();
+      expect(api.createSession.mock.calls[0][0]).toMatchObject({ engine: 'cartesia', voiceClone: true });
+    });
+
+    it('create sends no voice_clone when it is left unticked, nor on another tier even if it was ticked before', async () => {
+      api.createSession.mockResolvedValue({ ok: true, data: CREATED });
+      await setup(list());
+      pick('cartesia');
+      $('lh-create').click();
+      await flush();
+      expect(api.createSession.mock.calls[0][0]).toMatchObject({ engine: 'cartesia' });
+      expect(api.createSession.mock.calls[0][0]).not.toHaveProperty('voiceClone');
+      pick('cartesia');
+      box().checked = true;
+      pick('gemini_live_translate');
+      $('lh-create').click();
+      await flush();
+      expect(api.createSession.mock.calls[1][0]).not.toHaveProperty('voiceClone');
+    });
+  });
+
+  describe('Prepare my voice', () => {
+    it('is offered inline when cloning is on but the account has no clone, instead of the checkbox', async () => {
+      await setup(list(clone(false, true, false)));
+      pick('cartesia');
+      expect($('lh-voiceprep').hidden).toBe(false);
+      expect($('lh-voice-field').hidden).toBe(true);
+      expect($('lh-voiceprep').textContent).toContain(EN.voicePrepPrompt);
+      expect($('lh-voiceprep-record').textContent).toBe(EN.voicePrepRecord);
+      pick('standard');
+      expect($('lh-voiceprep').hidden).toBe(true);
+    });
+
+    it('records in the host language, shows the progress and the outcome, then offers the (still unticked) checkbox', async () => {
+      prep.prepareVoice.mockImplementation(async (_lang: string, onState: (s: string) => void, onProgress: (f: number) => void) => {
+        onState('recording');
+        onProgress(0.5);
+        expect(($('lh-voiceprep-meter') as HTMLProgressElement).hidden).toBe(false);
+        expect(($('lh-voiceprep-meter') as HTMLProgressElement).value).toBe(0.5);
+        expect($('lh-voiceprep-status').textContent).toBe(EN.voicePrepRecording);
+        onState('saving');
+        expect($('lh-voiceprep-status').textContent).toBe(EN.voicePrepSaving);
+        onState('cloned');
+        return true;
+      });
+      await setup(list(clone(false, true, false)));
+      pick('cartesia');
+      $('lh-voiceprep-record').click();
+      await flush();
+      expect(prep.prepareVoice.mock.calls[0][0]).toBe('it');
+      expect($('lh-voiceprep-status').textContent).toBe(EN.voicePrepSaved);
+      expect($('lh-voiceprep').hidden).toBe(true);
+      expect($('lh-voice-field').hidden).toBe(false);
+      expect(box().checked).toBe(false);
+      expect(($('lh-voiceprep-record') as HTMLButtonElement).disabled).toBe(false);
+    });
+
+    it('a failed preparation says so, keeps the panel, and lets the host try again', async () => {
+      prep.prepareVoice.mockImplementation(async (_l: string, onState: (s: string) => void) => {
+        onState('failed');
+        return false;
+      });
+      await setup(list(clone(false, true, false)));
+      pick('cartesia');
+      $('lh-voiceprep-record').click();
+      await flush();
+      expect($('lh-voiceprep-status').textContent).toBe(EN.voicePrepFailed);
+      expect($('lh-voiceprep').hidden).toBe(false);
+      expect($('lh-voice-field').hidden).toBe(true);
+      $('lh-voiceprep-record').click();
+      await flush();
+      expect(prep.prepareVoice).toHaveBeenCalledTimes(2);
+    });
+
+    it('ignores a second tap while recording', async () => {
+      let release: (v: boolean) => void = () => {};
+      prep.prepareVoice.mockReturnValue(new Promise((r) => (release = r)));
+      await setup(list(clone(false, true, false)));
+      pick('cartesia');
+      $('lh-voiceprep-record').click();
+      $('lh-voiceprep-record').click();
+      expect(prep.prepareVoice).toHaveBeenCalledTimes(1);
+      expect(($('lh-voiceprep-record') as HTMLButtonElement).disabled).toBe(true);
+      release(false);
+    });
+  });
+
+  it.each([
+    ['voice_clone_unavailable', 'liveErrVoiceCloneUnavailable'],
+    ['bad_voice_clone', 'liveErrBadVoiceClone'],
+    ['engine_not_available', 'liveErrEngineNotAvailable'],
+    ['engine_not_allowed', 'liveErrEngineNotAllowed'],
+  ])('shows a friendly message for %s', async (code, key) => {
+    api.createSession.mockResolvedValue({ ok: false, status: 400, code });
+    await setup(list());
+    pick('cartesia');
+    box().checked = true;
+    $('lh-create').click();
+    await flush();
+    expect($('lh-status').textContent).toBe(EN[key]);
+  });
+
+  it('a 402 on Enhanced still shows the buy-credits path', async () => {
+    api.createSession.mockResolvedValue({ ok: false, status: 402, code: 'insufficient_balance' });
+    await setup(list());
+    pick('cartesia');
+    $('lh-create').click();
+    await flush();
+    expect($('lh-buy').hidden).toBe(false);
   });
 });

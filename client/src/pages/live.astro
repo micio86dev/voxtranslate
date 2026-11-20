@@ -41,13 +41,51 @@ const T = (k: string): string => (en as Record<string, string>)[k] ?? '';
       <a class="btn-primary lc-action" href="/" data-i18n="signIn">{T('signIn')}</a>
     </section>
 
-    <!-- 1. SETUP. One choice (my language), one switch (transcript), one button. -->
+    <!-- 1. SETUP. My language, the translation tier, how many guests, one switch (transcript), one button. -->
     <section class="lc-stack" id="lh-setup" hidden>
       <div class="card lc-card-setup">
         <div class="field">
           <span class="field-label" data-i18n="liveYourLang">{T('liveYourLang')}</span>
           <div id="lh-lang"></div>
         </div>
+
+        <!-- The translation tier: filled by page-host.ts from GET /api/live/engines (Standard only
+             until it answers). Native radios inside labels, so arrow keys and names come free. -->
+        <div class="field lc-tiers" id="lh-tier-field">
+          <span class="field-label" id="lh-tier-label" data-i18n="liveTier">{T('liveTier')}</span>
+          <div class="lc-tier-list" id="lh-tiers" role="radiogroup" aria-labelledby="lh-tier-label"></div>
+          <small class="lc-hint" id="lh-tier-hint"></small>
+          <!-- Enhanced only (page-host.ts shows what applies): the host's cloned voice speaks the
+               translations on the guests' phones. The consent sentence is part of the checkbox's label,
+               so it is read out with it, and the box is never pre-checked. -->
+          <div class="lc-voice" id="lh-voice-field" hidden>
+            <label class="lc-check" for="lh-voice-clone">
+              <input type="checkbox" id="lh-voice-clone" />
+              <span>
+                <span data-i18n="liveVoiceClone">{T('liveVoiceClone')}</span>
+                <small class="lc-hint" data-i18n="liveVoiceCloneConsent">{T('liveVoiceCloneConsent')}</small>
+              </span>
+            </label>
+          </div>
+          <div class="lc-voiceprep" id="lh-voiceprep" hidden>
+            <span class="field-label" data-i18n="voicePrepTitle">{T('voicePrepTitle')}</span>
+            <p class="lc-note" data-i18n="voicePrepPrompt">{T('voicePrepPrompt')}</p>
+            <p class="lc-note" data-i18n="voicePrepSample">{T('voicePrepSample')}</p>
+            <progress id="lh-voiceprep-meter" class="lc-meter" max="1" value="0" hidden aria-label={T('voicePrepRecording')}></progress>
+            <button id="lh-voiceprep-record" class="btn-ghost" type="button" data-i18n="voicePrepRecord">{T('voicePrepRecord')}</button>
+            <p id="lh-voiceprep-status" class="lc-hint" role="status" aria-live="polite"></p>
+          </div>
+        </div>
+
+        <fieldset class="field lc-guests" id="lh-guests-field">
+          <legend class="field-label" data-i18n="liveGuests">{T('liveGuests')}</legend>
+          <div class="lc-seg">
+            <label class="lc-seg-opt"><input type="radio" name="lh-guests" value="1" checked /><span>1</span></label>
+            <label class="lc-seg-opt"><input type="radio" name="lh-guests" value="2" /><span>2</span></label>
+            <label class="lc-seg-opt"><input type="radio" name="lh-guests" value="3" /><span>3</span></label>
+          </div>
+          <small class="lc-hint" id="lh-guests-hint" aria-live="polite"></small>
+        </fieldset>
 
         <label class="lc-check">
           <input type="checkbox" id="lh-transcript" />
@@ -73,19 +111,24 @@ const T = (k: string): string => (en as Record<string, string>)[k] ?? '';
 
     <!-- 2 + 3. INVITE while nobody has joined, then the conversation itself. -->
     <section class="lc-stack" id="lh-session" hidden>
+      <!-- Several guests: how many seats are taken, kept even when the invitation is hidden. -->
+      <p class="lc-seats" id="lh-seats" role="status" aria-live="polite" hidden></p>
       <div class="card lc-invite" id="lh-invite" hidden>
-        <h2 class="lc-title lc-invite-title" data-i18n="liveInviteTitle">{T('liveInviteTitle')}</h2>
-        <p class="lc-note" data-i18n="liveInviteHint">{T('liveInviteHint')}</p>
-        <img id="lh-qr" class="lc-qr" alt={T('liveQrAlt')} width="280" height="280" hidden />
-        <label class="field-label lc-link-label" for="lh-link" data-i18n="liveInviteLink">{T('liveInviteLink')}</label>
-        <div class="lc-link-row">
-          <input id="lh-link" class="lc-link" type="text" readonly dir="ltr" />
+        <button id="lh-invite-toggle" class="btn-ghost lc-invite-toggle" type="button" aria-expanded="false" aria-controls="lh-invite-body" hidden data-i18n="liveInviteMore">{T('liveInviteMore')}</button>
+        <div class="lc-invite-body" id="lh-invite-body">
+          <h2 class="lc-title lc-invite-title" id="lh-invite-title" data-i18n="liveInviteTitle">{T('liveInviteTitle')}</h2>
+          <p class="lc-note" data-i18n="liveInviteHint">{T('liveInviteHint')}</p>
+          <img id="lh-qr" class="lc-qr" alt={T('liveQrAlt')} width="280" height="280" hidden />
+          <label class="field-label lc-link-label" for="lh-link" data-i18n="liveInviteLink">{T('liveInviteLink')}</label>
+          <div class="lc-link-row">
+            <input id="lh-link" class="lc-link" type="text" readonly dir="ltr" />
+          </div>
+          <div class="lc-link-actions">
+            <button id="lh-copy" class="btn-primary" type="button" data-i18n="copy">{T('copy')}</button>
+            <button id="lh-share" class="btn-ghost" type="button" data-i18n="liveShare" hidden>{T('liveShare')}</button>
+          </div>
+          <p class="lc-note" id="lh-invite-expires" data-i18n="liveInviteExpires">{T('liveInviteExpires')}</p>
         </div>
-        <div class="lc-link-actions">
-          <button id="lh-copy" class="btn-primary" type="button" data-i18n="copy">{T('copy')}</button>
-          <button id="lh-share" class="btn-ghost" type="button" data-i18n="liveShare" hidden>{T('liveShare')}</button>
-        </div>
-        <p class="lc-note" data-i18n="liveInviteExpires">{T('liveInviteExpires')}</p>
       </div>
       <div id="lh-room"></div>
     </section>

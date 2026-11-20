@@ -5,7 +5,7 @@ vi.mock('../auth', () => ({
   authHeaders: () => ({ Authorization: 'Bearer ACCOUNT-JWT' }),
 }));
 
-import { answerSession, createSession, deskWaiting, endSession, getSession, joinSession, myDesks, scanDesk, type ApiResult } from './api';
+import { answerSession, createSession, deskWaiting, endSession, enhancedSession, getSession, joinSession, listEngines, myDesks, scanDesk, type ApiResult } from './api';
 
 function res(status: number, body: unknown): Response {
   return new Response(typeof body === 'string' ? body : JSON.stringify(body), {
@@ -46,6 +46,45 @@ describe('createSession', () => {
     expect(JSON.parse(String(init?.body))).toEqual({ lang: 'it', save_transcript: true });
   });
 
+  it('sends max_guests when the host chose one, and omits it otherwise (a pair)', async () => {
+    const f = fetcher(res(200, { ...CREATED, max_guests: 3 }));
+    const out = await createSession({ lang: 'it', saveTranscript: false, maxGuests: 3 }, f as never);
+    expect(JSON.parse(String(f.mock.calls[0][1]?.body))).toEqual({ lang: 'it', save_transcript: false, max_guests: 3 });
+    expect(out.ok && out.data.max_guests).toBe(3);
+    const g = fetcher(res(200, CREATED));
+    await createSession({ lang: 'it', saveTranscript: false }, g as never);
+    expect(JSON.parse(String(g.mock.calls[0][1]?.body))).not.toHaveProperty('max_guests');
+  });
+
+  it('surfaces bad_max_guests as a code', async () => {
+    const out = await createSession({ lang: 'it', saveTranscript: false, maxGuests: 9 }, fetcher(res(400, { code: 'bad_max_guests' })) as never);
+    expect(out).toEqual({ ok: false, status: 400, code: 'bad_max_guests' });
+  });
+
+  it('sends engine only for a tier other than Standard', async () => {
+    const f = fetcher(res(200, { ...CREATED, engine: 'gemini_live_translate' }));
+    const out = await createSession({ lang: 'it', saveTranscript: false, engine: 'gemini_live_translate' }, f as never);
+    expect(JSON.parse(String(f.mock.calls[0][1]?.body))).toEqual({
+      lang: 'it',
+      save_transcript: false,
+      engine: 'gemini_live_translate',
+    });
+    expect(out.ok && out.data.engine).toBe('gemini_live_translate');
+    for (const engine of [undefined, 'standard']) {
+      const g = fetcher(res(200, CREATED));
+      await createSession({ lang: 'it', saveTranscript: false, engine }, g as never);
+      expect(JSON.parse(String(g.mock.calls[0][1]?.body))).not.toHaveProperty('engine');
+    }
+  });
+
+  it.each(['engine_not_available', 'engine_not_supported_yet', 'engine_not_allowed', 'live_busy', 'insufficient_balance'])(
+    'surfaces %s as a code',
+    async (code) => {
+      const out = await createSession({ lang: 'it', saveTranscript: false, engine: 'gemini_live_translate' }, fetcher(res(code === 'live_busy' ? 503 : 400, { code })) as never);
+      expect(out).toMatchObject({ ok: false, code });
+    },
+  );
+
   it('never puts the account JWT in the URL', async () => {
     const f = fetcher(res(200, CREATED));
     await createSession({ lang: 'it', saveTranscript: false }, f as never);
@@ -79,6 +118,30 @@ describe('getSession / endSession', () => {
     expect(g.mock.calls[0][0]).toBe('http://api.test/api/live/sessions/s1/end');
     expect(g.mock.calls[0][1]?.method).toBe('POST');
     expect(g.mock.calls[0][1]?.headers).toMatchObject({ Authorization: 'Bearer LIVE-TOKEN' });
+  });
+});
+
+describe('multi-guest answers', () => {
+  it('join returns max_guests, and a guest hang-up in a bigger conversation answers left:true', async () => {
+    const joined = await joinSession(
+      { code: 'C', name: 'G', lang: 'en', consent: true },
+      fetcher(res(200, { session_id: 's', peer_id: 'g', token: 't', ws_path: '/ws/live', host: { name: 'A', lang: 'it' }, max_guests: 3 })) as never,
+    );
+    expect(joined.ok && joined.data.max_guests).toBe(3);
+    const left = await endSession('s', 'T', fetcher(res(200, { ended: false, left: true })) as never);
+    expect(left).toEqual({ ok: true, data: { ended: false, left: true } });
+  });
+
+  it('getSession exposes max_guests and every seat ever taken', async () => {
+    const info = { session: { id: 's', max_guests: 2, participants: [{ peer_id: 'h', role: 'host' }, { peer_id: 'g', role: 'guest' }] }, you: { peer_id: 'h', role: 'host' } };
+    const out = await getSession('s', 'T', fetcher(res(200, info)) as never);
+    expect(out.ok && out.data.session.max_guests).toBe(2);
+    expect(out.ok && out.data.session.participants).toHaveLength(2);
+  });
+
+  it('live_busy at join stays a code, so the page can offer a retry', async () => {
+    const out = await joinSession({ code: 'C', name: 'G', lang: 'en', consent: true }, fetcher(res(503, { code: 'live_busy' })) as never);
+    expect(out).toEqual({ ok: false, status: 503, code: 'live_busy' });
   });
 });
 
@@ -202,5 +265,72 @@ describe('staff calls (account JWT)', () => {
   it('a plain-text refusal (the org routes answer without a body code) keeps its status', async () => {
     const out = await answerSession('s1', 'en', fetcher(new Response('insufficient role', { status: 403 })) as never);
     expect(out).toEqual({ ok: false, status: 403, code: 'http_error' });
+  });
+});
+
+describe('listEngines', () => {
+  const LIST = { default: 'standard', engines: [{ id: 'standard', display_name: 'Standard', tier: 'standard' }] };
+
+  it('GETs the tiers with the account JWT, never in the URL', async () => {
+    const f = fetcher(res(200, LIST));
+    const out = await listEngines(f as never);
+    expect(out).toEqual({ ok: true, data: LIST });
+    const [url, init] = f.mock.calls[0];
+    expect(url).toBe('http://api.test/api/live/engines');
+    expect(init?.method).toBe('GET');
+    expect(init?.headers).toMatchObject({ Authorization: 'Bearer ACCOUNT-JWT' });
+    expect(String(url)).not.toContain('ACCOUNT-JWT');
+  });
+
+  it('reports a failure as a result, never a throw', async () => {
+    expect(await listEngines(fetcher(new TypeError('offline')) as never)).toEqual({ ok: false, status: 0, code: 'network' });
+    expect(await listEngines(fetcher(res(401, { code: 'unauthorized' })) as never)).toMatchObject({ ok: false, status: 401 });
+  });
+});
+
+describe('Enhanced: voice clone and token', () => {
+  it('createSession sends voice_clone only when the host opted in', async () => {
+    const f = fetcher(res(200, { ...CREATED, engine: 'cartesia', voice_clone: true }));
+    const out = await createSession({ lang: 'it', saveTranscript: false, engine: 'cartesia', voiceClone: true }, f as never);
+    expect(JSON.parse(String(f.mock.calls[0][1]?.body))).toEqual({ lang: 'it', save_transcript: false, engine: 'cartesia', voice_clone: true });
+    expect(out.ok && out.data.voice_clone).toBe(true);
+    for (const voiceClone of [undefined, false]) {
+      const g = fetcher(res(200, CREATED));
+      await createSession({ lang: 'it', saveTranscript: false, engine: 'cartesia', voiceClone }, g as never);
+      expect(JSON.parse(String(g.mock.calls[0][1]?.body))).not.toHaveProperty('voice_clone');
+    }
+  });
+
+  it.each(['voice_clone_unavailable', 'bad_voice_clone', 'engine_not_available'])('surfaces %s as a code', async (code) => {
+    const out = await createSession({ lang: 'it', saveTranscript: false, engine: 'cartesia', voiceClone: true }, fetcher(res(400, { code })) as never);
+    expect(out).toEqual({ ok: false, status: 400, code });
+  });
+
+  it('enhancedSession POSTs with the LIVE token (never the account JWT) and returns Meet\'s shape', async () => {
+    const body = { token: 'CARTESIA', expires_at: 1, cartesia_version: 'v', stt: { endpoint: 'e', model: 'm' }, tts: { endpoint: 'e', model: 'm' }, voice_cloning_enabled: true };
+    const f = fetcher(res(200, body));
+    const out = await enhancedSession('s 1', 'LIVE-TOKEN', f as never);
+    expect(out).toEqual({ ok: true, data: body });
+    const [url, init] = f.mock.calls[0];
+    expect(url).toBe('http://api.test/api/live/sessions/s%201/enhanced/session');
+    expect(init?.method).toBe('POST');
+    expect(init?.headers).toEqual({ Authorization: 'Bearer LIVE-TOKEN' });
+    expect(JSON.stringify(init)).not.toContain('ACCOUNT-JWT');
+  });
+
+  it.each([
+    [401, 'unauthorized'],
+    [403, 'wrong_session'],
+    [410, 'session_ended'],
+    [409, 'not_enhanced'],
+    [402, 'insufficient_balance'],
+    [429, 'rate_limited'],
+    [502, 'enhanced_unavailable'],
+  ])('enhancedSession surfaces %i %s', async (status, code) => {
+    expect(await enhancedSession('s1', 'T', fetcher(res(status, { code })) as never)).toEqual({ ok: false, status, code });
+  });
+
+  it('enhancedSession reports a dead network as status 0', async () => {
+    expect(await enhancedSession('s1', 'T', fetcher(new Error('offline')) as never)).toEqual({ ok: false, status: 0, code: 'network' });
   });
 });

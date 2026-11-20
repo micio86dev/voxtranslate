@@ -4,10 +4,12 @@
 //! (who may take a seat, when a session is full, how many a user may hold open) are tested
 //! against a real database without a server.
 //!
-//! A session has two seats. The **owner side** is the `host` (B2C owner, or a member who
-//! created a B2B session) or `staff` (a member who answered a desk scan). The other seat is the
-//! `guest`. Both partial unique indexes on `live_participants` make "one per side" a database
-//! fact, so the checks below can lose a race and the database still says no.
+//! A session has one **owner side** seat and up to `max_guests` guest seats. The owner side is
+//! the `host` (B2C owner, or a member who created a B2B session) or `staff` (a member who
+//! answered a desk scan); a partial unique index on `live_participants` makes "one owner side" a
+//! database fact. Guests are capped IN CODE: a unique index cannot say "at most N", so
+//! [`join_guest`] counts them under a `FOR UPDATE` lock on the session row, which is what makes
+//! simultaneous joins admit exactly `max_guests` and no more.
 
 use chrono::{DateTime, Utc};
 use sha2::{Digest, Sha256};
@@ -106,6 +108,11 @@ pub struct NewSession<'a> {
     pub host_lang: &'a str,
     pub save_transcript: bool,
     pub engine_id: Option<&'a str>,
+    /// How many guests the invitation admits (1..=3). Validated by the caller.
+    pub max_guests: i16,
+    /// The host opted, for this conversation only, into the other phones speaking the host's
+    /// words in the host's cloned voice (Enhanced only). Validated by the caller.
+    pub use_voice_clone: bool,
 }
 
 #[derive(Debug)]
@@ -138,6 +145,13 @@ pub struct Joined {
     pub host_name: String,
     pub host_lang: String,
     pub created_at: DateTime<Utc>,
+    /// How many guests the session admits in all (this guest included).
+    pub max_guests: i16,
+    /// The tier the session runs on (a guest inherits it). `None` is a row that predates tiers:
+    /// Standard.
+    pub engine_id: Option<String>,
+    /// Whether the host opted into their cloned voice for this conversation (Enhanced only).
+    pub use_voice_clone: bool,
 }
 
 #[derive(Debug)]
@@ -148,8 +162,10 @@ pub enum JoinError {
     Expired,
     /// The session has ended.
     Ended,
-    /// The guest seat is taken. A guest who already joined reconnects with their token.
+    /// Every guest seat is taken. A guest who already joined reconnects with their token.
     Full,
+    /// The translation engine cannot open the upstream sessions this guest's arrival needs.
+    Busy,
     Db(sqlx::Error),
 }
 
@@ -174,6 +190,8 @@ pub struct PeerAuth {
     pub status: String,
     pub save_transcript: bool,
     pub engine_id: Option<String>,
+    /// The host's opt-in to their cloned voice for this conversation.
+    pub use_voice_clone: bool,
     pub created_at: DateTime<Utc>,
 }
 
@@ -232,8 +250,8 @@ pub async fn create_session(
         sqlx::query_as(
             "INSERT INTO live_sessions
                  (owner_user_id, org_id, project_id, status, invite_hash, host_lang,
-                  save_transcript, engine_id, expires_at)
-             VALUES ($1, $2, $3, 'waiting', $4, $5, $6, $7,
+                  save_transcript, engine_id, max_guests, use_voice_clone, expires_at)
+             VALUES ($1, $2, $3, 'waiting', $4, $5, $6, $7, $9, $10,
                      now() + make_interval(secs => $8::int))
              RETURNING id, created_at, expires_at",
         )
@@ -245,6 +263,8 @@ pub async fn create_session(
         .bind(new.save_transcript)
         .bind(new.engine_id)
         .bind(cfg.join_window_secs as i32)
+        .bind(new.max_guests)
+        .bind(new.use_voice_clone)
         .fetch_one(&mut *tx)
         .await?;
 
@@ -272,26 +292,85 @@ pub async fn create_session(
 
 // ---- join ------------------------------------------------------------------------------
 
-/// Take the guest seat with an invitation code. Succeeds once per session: a second device
-/// presenting the same code gets [`JoinError::Full`], and the first one reconnects with the
-/// token it was given.
+/// Upstream translation sessions a room needs when everybody speaks: each participant opens one
+/// per distinct OTHER language present, so `p` participants over `d` distinct languages need
+/// `sum over participants of (d - 1)`. An upper bound (not everybody speaks all the time) and the
+/// figure the capacity gate reasons with.
+pub fn engine_sessions_needed(langs: &[&str]) -> usize {
+    let mut distinct: Vec<&str> = Vec::with_capacity(langs.len());
+    for l in langs {
+        if !distinct.contains(l) {
+            distinct.push(l);
+        }
+    }
+    langs.len() * distinct.len().saturating_sub(1)
+}
+
+/// Engine sessions a guest of language `newcomer` adds to a room of `present`: their own streams
+/// plus the new language's stream for every speaker already there. Never below the two a
+/// conversation has always needed, so a first guest is judged exactly as before.
+pub fn engine_sessions_for_join(present: &[&str], newcomer: &str) -> usize {
+    let mut after: Vec<&str> = present.to_vec();
+    after.push(newcomer);
+    engine_sessions_needed(&after)
+        .saturating_sub(engine_sessions_needed(present))
+        .max(2)
+}
+
+/// Take a guest seat with an invitation code. The same code admits guests one after the other
+/// while the session is `waiting` or `active`, until it holds `max_guests` of them.
+///
+/// The session row is locked (`FOR UPDATE`) for the whole check-and-insert, so N simultaneous
+/// joins queue behind each other and exactly `max_guests` get in; the rest get
+/// [`JoinError::Full`]. Each guest has a seat of their own (id, token, consent), and a seat is
+/// never handed on: a guest who dropped reconnects with the token they were given.
+///
+/// The join window only matters to a session nobody has joined yet (`waiting`): once it has a
+/// guest it is `active` and the invitation stays good until the session ends or fills.
+///
+/// `free_engine_sessions` is the engine's spare upstream capacity (`None` = unmetered). When the
+/// new guest's arrival needs more than that, the join is refused with [`JoinError::Busy`] instead
+/// of seating somebody whose direction the engine would silently skip.
 pub async fn join_guest(
     pool: &Pool,
     code: &str,
     name: &str,
     lang: &str,
+    free_engine_sessions: Option<usize>,
 ) -> Result<Joined, JoinError> {
     let hash = tokens::hash_secret(code);
     let mut tx = pool.begin().await?;
 
-    let row: Option<(Uuid, String, bool, DateTime<Utc>, String)> = sqlx::query_as(
-        "SELECT id, status, (expires_at <= now()), created_at, host_lang
+    #[derive(sqlx::FromRow)]
+    struct Invite {
+        id: Uuid,
+        status: String,
+        past_expiry: bool,
+        created_at: DateTime<Utc>,
+        host_lang: String,
+        max_guests: i16,
+        engine_id: Option<String>,
+        use_voice_clone: bool,
+    }
+    let row: Option<Invite> = sqlx::query_as(
+        "SELECT id, status, (expires_at <= now()) AS past_expiry, created_at, host_lang,
+                max_guests, engine_id, use_voice_clone
          FROM live_sessions WHERE invite_hash = $1 FOR UPDATE",
     )
     .bind(hash.as_slice())
     .fetch_optional(&mut *tx)
     .await?;
-    let Some((session_id, status, past_expiry, created_at, host_lang)) = row else {
+    let Some(Invite {
+        id: session_id,
+        status,
+        past_expiry,
+        created_at,
+        host_lang,
+        max_guests,
+        engine_id,
+        use_voice_clone,
+    }) = row
+    else {
         return Err(JoinError::NotFound);
     };
 
@@ -312,21 +391,35 @@ pub async fn join_guest(
         _ => {}
     }
 
-    let guest_peer: Result<Uuid, sqlx::Error> = sqlx::query_scalar(
-        "INSERT INTO live_participants (session_id, role, display_name, lang, consent_at)
-         VALUES ($1, 'guest', $2, $3, now())
+    let present: Vec<(String, String)> =
+        sqlx::query_as("SELECT role, lang FROM live_participants WHERE session_id = $1")
+            .bind(session_id)
+            .fetch_all(&mut *tx)
+            .await?;
+    let guests = present.iter().filter(|(role, _)| role == "guest").count();
+    if guests >= usize::try_from(max_guests).unwrap_or(1) {
+        return Err(JoinError::Full);
+    }
+    if let Some(free) = free_engine_sessions {
+        let langs: Vec<&str> = present.iter().map(|(_, l)| l.as_str()).collect();
+        if free < engine_sessions_for_join(&langs, lang) {
+            return Err(JoinError::Busy);
+        }
+    }
+
+    // `clock_timestamp()`, not `now()`: `now()` is the START of this transaction, and a join that
+    // began before a colleague's committed would sort ahead of it. Seats are read back in join
+    // order, and the lock above guarantees this call runs after the previous join's commit.
+    let guest_peer: Uuid = sqlx::query_scalar(
+        "INSERT INTO live_participants (session_id, role, display_name, lang, consent_at, joined_at)
+         VALUES ($1, 'guest', $2, $3, now(), clock_timestamp())
          RETURNING peer_id",
     )
     .bind(session_id)
     .bind(clean_name(name))
     .bind(lang)
     .fetch_one(&mut *tx)
-    .await;
-    let guest_peer = match guest_peer {
-        Ok(p) => p,
-        Err(e) if is_unique_violation(&e) => return Err(JoinError::Full),
-        Err(e) => return Err(e.into()),
-    };
+    .await?;
 
     sqlx::query(
         "UPDATE live_sessions
@@ -353,11 +446,25 @@ pub async fn join_guest(
         host_name,
         host_lang,
         created_at,
+        max_guests,
+        engine_id,
+        use_voice_clone,
     })
 }
 
-fn is_unique_violation(e: &sqlx::Error) -> bool {
-    e.as_database_error().and_then(|d| d.code()).as_deref() == Some("23505")
+/// The tier of the session an invitation code opens, read before the join so the capacity gate
+/// can judge the engine that will actually serve it. Outer `None`: no such session (the join
+/// answers that itself); inner `None`: a session that predates tiers.
+pub async fn engine_for_invite(pool: &Pool, code: &str) -> Option<Option<String>> {
+    let hash = tokens::hash_secret(code);
+    sqlx::query_scalar::<_, Option<String>>(
+        "SELECT engine_id FROM live_sessions WHERE invite_hash = $1",
+    )
+    .bind(hash.as_slice())
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten()
 }
 
 // ---- tokens ----------------------------------------------------------------------------
@@ -388,6 +495,7 @@ struct PeerRow {
     project_id: Option<Uuid>,
     save_transcript: bool,
     engine_id: Option<String>,
+    use_voice_clone: bool,
     created_at: DateTime<Utc>,
 }
 
@@ -399,7 +507,7 @@ pub async fn authorize_peer(pool: &Pool, claims: &GuestClaims) -> Result<PeerAut
     let row: Option<PeerRow> = sqlx::query_as(
         "SELECT p.role, p.lang, p.display_name, p.user_id, s.status,
                 s.org_id, s.owner_user_id, s.project_id,
-                s.save_transcript, s.engine_id, s.created_at
+                s.save_transcript, s.engine_id, s.use_voice_clone, s.created_at
          FROM live_participants p
          JOIN live_sessions s ON s.id = p.session_id
          WHERE p.peer_id = $1 AND p.session_id = $2
@@ -437,6 +545,7 @@ pub async fn authorize_peer(pool: &Pool, claims: &GuestClaims) -> Result<PeerAut
         status: row.status,
         save_transcript: row.save_transcript,
         engine_id: row.engine_id,
+        use_voice_clone: row.use_voice_clone,
         created_at: row.created_at,
     })
 }
@@ -452,6 +561,24 @@ pub async fn store_token_hash(pool: &Pool, peer_id: Uuid, token: &str) {
     {
         tracing::warn!(error = %e, "live: could not store token hash");
     }
+}
+
+/// The tier a stored `engine_id` stands for: a row that predates tiers (`NULL`) is Standard.
+pub fn effective_engine(stored: Option<&str>) -> String {
+    stored.unwrap_or(super::tiers::DEFAULT_TIER).to_string()
+}
+
+/// Move a conversation to `engine_id` (a capacity fallback). Only an open conversation changes.
+pub async fn set_engine(pool: &Pool, session_id: Uuid, engine_id: &str) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "UPDATE live_sessions SET engine_id = $2
+         WHERE id = $1 AND status IN ('waiting', 'active')",
+    )
+    .bind(session_id)
+    .bind(engine_id)
+    .execute(pool)
+    .await?;
+    Ok(())
 }
 
 // ---- end / expire ----------------------------------------------------------------------
@@ -517,6 +644,14 @@ pub struct SessionView {
     pub id: Uuid,
     pub status: String,
     pub host_lang: String,
+    /// How many guests the invitation admits in all.
+    pub max_guests: i16,
+    /// The tier every seat of this conversation runs on (`standard` or `gemini_live_translate`).
+    /// Follows a capacity fallback: after one it reads `standard`.
+    pub engine: String,
+    /// Whether the other phones speak the host's words in the host's cloned voice (Enhanced
+    /// only). Never the voice id itself: that reaches a phone only inside `enhanced_speak`.
+    pub voice_clone: bool,
     pub created_at: DateTime<Utc>,
     pub expires_at: DateTime<Utc>,
     pub participants: Vec<ParticipantView>,
@@ -528,13 +663,33 @@ pub async fn session_view(
     pool: &Pool,
     session_id: Uuid,
 ) -> Result<Option<SessionView>, sqlx::Error> {
-    let head: Option<(String, String, DateTime<Utc>, DateTime<Utc>)> = sqlx::query_as(
-        "SELECT status, host_lang, created_at, expires_at FROM live_sessions WHERE id = $1",
+    #[derive(sqlx::FromRow)]
+    struct Head {
+        status: String,
+        host_lang: String,
+        max_guests: i16,
+        engine_id: Option<String>,
+        use_voice_clone: bool,
+        created_at: DateTime<Utc>,
+        expires_at: DateTime<Utc>,
+    }
+    let head: Option<Head> = sqlx::query_as(
+        "SELECT status, host_lang, max_guests, engine_id, use_voice_clone, created_at, expires_at
+         FROM live_sessions WHERE id = $1",
     )
     .bind(session_id)
     .fetch_optional(pool)
     .await?;
-    let Some((status, host_lang, created_at, expires_at)) = head else {
+    let Some(Head {
+        status,
+        host_lang,
+        max_guests,
+        engine_id,
+        use_voice_clone,
+        created_at,
+        expires_at,
+    }) = head
+    else {
         return Ok(None);
     };
     let rows: Vec<(Uuid, String, String, String)> = sqlx::query_as(
@@ -548,6 +703,9 @@ pub async fn session_view(
         id: session_id,
         status,
         host_lang,
+        max_guests,
+        engine: effective_engine(engine_id.as_deref()),
+        voice_clone: use_voice_clone,
         created_at,
         expires_at,
         participants: rows
@@ -590,6 +748,35 @@ pub fn token_hash(token: &str) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_room_needs_one_upstream_session_per_speaker_per_other_language() {
+        // Alone, or all in one language: nothing to translate.
+        assert_eq!(engine_sessions_needed(&[]), 0);
+        assert_eq!(engine_sessions_needed(&["it"]), 0);
+        assert_eq!(engine_sessions_needed(&["it", "it", "it"]), 0);
+        // The classic pair: one stream each way.
+        assert_eq!(engine_sessions_needed(&["it", "es"]), 2);
+        // Three languages, four phones (two share one): each phone translates into the 2 others.
+        assert_eq!(engine_sessions_needed(&["it", "es", "es", "en"]), 8);
+        // Four phones, four languages: 4 x 3.
+        assert_eq!(engine_sessions_needed(&["it", "es", "en", "fr"]), 12);
+    }
+
+    #[test]
+    fn a_join_is_judged_by_what_the_newcomer_adds_and_never_below_the_two_of_a_pair() {
+        // A first guest in another language: exactly the pair's two, as before.
+        assert_eq!(engine_sessions_for_join(&["it"], "es"), 2);
+        // A first guest in the host's own language adds nothing, but the old gate still wanted two.
+        assert_eq!(engine_sessions_for_join(&["it"], "it"), 2);
+        // A second guest in a third language: 3 phones x 2 languages = 6, minus the pair's 2.
+        assert_eq!(engine_sessions_for_join(&["it", "es"], "en"), 4);
+        // A second guest in a language already there: 3 phones x 1 other language = 3, minus the
+        // pair's 2 is 1, floored at the two a conversation has always needed.
+        assert_eq!(engine_sessions_for_join(&["it", "es"], "es"), 2);
+        // The fourth phone of four languages: 12 minus the three phones' 6.
+        assert_eq!(engine_sessions_for_join(&["it", "es", "en"], "fr"), 6);
+    }
 
     #[test]
     fn languages_are_normalised_and_auto_is_refused() {

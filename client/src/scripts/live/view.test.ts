@@ -4,14 +4,17 @@ import {
   HISTORY_RENDER_LIMIT,
   buildExchangeCard,
   buildRoom,
+  renderTier,
   fill,
   formatCredits,
   langLabel,
   renderCaptions,
   renderDirection,
   renderOutputOptions,
-  renderPartner,
+  renderPartners,
   renderPhase,
+  renderSpeaking,
+  renderVoiceNote,
   type RoomEls,
 } from './view';
 import { initialContext, type LiveContext } from './session-machine';
@@ -44,7 +47,10 @@ describe('helpers', () => {
 
 describe('buildRoom', () => {
   it('is accessible: a polite live region for the caption, labelled controls, tap-sized buttons', () => {
-    expect(els.caption.closest('[aria-live="polite"]')).not.toBeNull();
+    expect(els.stage.getAttribute('aria-live')).toBe('polite');
+    expect(els.announce.getAttribute('aria-live')).toBe('polite');
+    expect(els.partners.getAttribute('aria-labelledby')).toBe('lc-partners-title');
+    expect(document.getElementById('lc-partners-title')?.textContent).toBe('In this conversation');
     expect(els.status.getAttribute('role')).toBe('status');
     expect(els.mute.getAttribute('aria-pressed')).toBe('false');
     expect(els.history.getAttribute('aria-live')).toBe('off');
@@ -63,6 +69,23 @@ describe('buildRoom', () => {
     expect(els.confirm.hidden).toBe(true);
   });
 
+  it('has a tier badge inside the status chip and a polite, dismissible downgrade notice, both hidden at first', () => {
+    expect(els.tier.hidden).toBe(true);
+    expect(els.status.contains(els.tier)).toBe(true);
+    expect(els.tierNotice.hidden).toBe(true);
+    expect(els.tierNotice.getAttribute('aria-live')).toBe('polite');
+    expect(els.tierNoticeClose.type).toBe('button');
+    expect(els.tierNoticeClose.textContent).toBe('Dismiss');
+  });
+
+  it('renderTier shows the tier name, or hides the badge when the tier is unknown', () => {
+    renderTier(els, 'gemini_live_translate');
+    expect(els.tier.hidden).toBe(false);
+    expect(els.tier.textContent).toBe('Quality: Premium');
+    renderTier(els, undefined);
+    expect(els.tier.hidden).toBe(true);
+  });
+
   it('shows the credit line only to the host', () => {
     expect(els.credits).not.toBeNull();
     const guest = buildRoom(document, { role: 'guest' });
@@ -77,6 +100,31 @@ describe('buildRoom', () => {
     expect(staff.endedAction.textContent).toBe('Back to desks');
     expect(buildRoom(document, { role: 'guest' }).endedAction.getAttribute('href')).toBe('/');
     expect(els.endedAction.getAttribute('href')).toBe('/live');
+  });
+});
+
+describe('buildRoom: ending words follow the size of the conversation', () => {
+  const text = (e: RoomEls) => [e.end.textContent, e.confirmText.textContent, e.endYes.textContent];
+
+  it('a pair keeps "End" and the both-of-you confirmation', () => {
+    expect(text(buildRoom(document, { role: 'host' }))).toEqual(['End', 'End the conversation for both of you?', 'End conversation']);
+    expect(text(buildRoom(document, { role: 'guest', maxGuests: 1 }))).toEqual(['End', 'End the conversation for both of you?', 'End conversation']);
+  });
+
+  it('the host of several guests is told it ends for everyone', () => {
+    expect(text(buildRoom(document, { role: 'host', maxGuests: 3 }))).toEqual(['End', 'End the conversation for everyone?', 'End conversation']);
+  });
+
+  it('a guest of several guests leaves instead', () => {
+    expect(text(buildRoom(document, { role: 'guest', maxGuests: 2 }))).toEqual([
+      'Leave',
+      'Leave the conversation? The others will carry on without you.',
+      'Leave',
+    ]);
+  });
+
+  it('a desk is untouched by maxGuests', () => {
+    expect(text(buildRoom(document, { role: 'staff', maxGuests: 3 }))[0]).toBe('End');
   });
 });
 
@@ -112,6 +160,11 @@ describe('renderPhase', () => {
     expect(els.endedText.textContent).toBe('You ended the conversation.');
   });
 
+  it('a guest who left a conversation that carries on sees that, not "ended"', () => {
+    renderPhase(els, ctx({ phase: 'ended', endReason: 'left_by_me' }), 'guest');
+    expect(els.endedText.textContent).toBe('You left the conversation. The others carry on.');
+  });
+
   it('failed shows the problem, with retry for connection problems and buy-credits for credits', () => {
     renderPhase(els, ctx({ phase: 'failed', failure: 'mic_denied' }), 'host');
     expect(els.problem.hidden).toBe(false);
@@ -138,33 +191,57 @@ describe('renderPhase', () => {
   });
 });
 
-describe('renderPartner / renderDirection', () => {
-  it('shows the partner name, language and connected state', () => {
-    renderPartner(els, partner, 'live');
-    expect(els.partnerName.textContent).toBe('Bea');
-    expect(els.partnerMeta.textContent).toContain('Español');
-    expect(els.partnerCard.dataset.online).toBe('true');
-    expect(els.partnerMuted.hidden).toBe(true);
-    renderPartner(els, { ...partner, muted: true }, 'live');
-    expect(els.partnerMuted.hidden).toBe(false);
+describe('renderPartners / renderDirection', () => {
+  const carlo = { peerId: 'c', name: 'Carlo', lang: 'en', muted: true };
+  const rows = () => [...els.partners.querySelectorAll<HTMLElement>('.lc-partner')];
+
+  it('shows one row per partner with name, language and connected state', () => {
+    renderPartners(els, [partner], 'live');
+    expect(rows()).toHaveLength(1);
+    expect(rows()[0].querySelector('.lc-partner-name')?.textContent).toBe('Bea');
+    expect(rows()[0].querySelector('.lc-partner-meta')?.textContent).toContain('Español');
+    expect(rows()[0].dataset.online).toBe('true');
+    expect(rows()[0].querySelector('.lc-muted-badge')).toBeNull();
+  });
+
+  it('lists three partners, each with their own language and their own muted icon', () => {
+    renderPartners(els, [partner, carlo, { peerId: 'd', name: 'Dina', lang: 'fr', muted: false }], 'live');
+    expect(rows().map((r) => r.querySelector('.lc-partner-name')?.textContent)).toEqual(['Bea', 'Carlo', 'Dina']);
+    expect(rows().map((r) => !!r.querySelector('.lc-muted-badge'))).toEqual([false, true, false]);
+    expect(rows()[1].querySelector('.lc-muted-badge')?.textContent).toBe('Muted');
+    expect(rows()[2].querySelector('.lc-partner-meta')?.textContent).toContain('Français');
   });
 
   it('shows "not connected yet" while nobody is in the room, and a reconnecting partner as offline', () => {
-    renderPartner(els, null, 'waiting_peer');
-    expect(els.partnerMeta.textContent).toBe('Not connected yet');
-    expect(els.partnerCard.dataset.online).toBe('false');
-    renderPartner(els, partner, 'reconnecting');
-    expect(els.partnerCard.dataset.online).toBe('false');
+    renderPartners(els, [], 'waiting_peer');
+    expect(rows()).toHaveLength(1);
+    expect(rows()[0].querySelector('.lc-partner-meta')?.textContent).toBe('Not connected yet');
+    expect(rows()[0].dataset.online).toBe('false');
+    renderPartners(els, [partner], 'reconnecting');
+    expect(rows()[0].dataset.online).toBe('false');
+  });
+
+  it('falls back to a generic name, and rebuilds rather than accumulates', () => {
+    renderPartners(els, [{ ...partner, name: '' }], 'live');
+    expect(rows()[0].querySelector('.lc-partner-name')?.textContent).toBe('Guest');
+    renderPartners(els, [partner], 'live');
+    expect(rows()).toHaveLength(1);
   });
 
   it('states both directions explicitly, with endonyms', () => {
-    renderDirection(els, 'it', 'es');
+    renderDirection(els, 'it', ['es']);
     expect(els.dirOut.textContent).toBe('You speak Italiano, they hear Español');
     expect(els.dirIn.textContent).toBe('They speak Español, you hear Italiano');
   });
 
+  it('lists every distinct partner language once (IT to ES, EN)', () => {
+    renderDirection(els, 'it', ['es', 'en', 'es-MX']);
+    expect(els.dirOut.textContent).toBe('You speak Italiano, they hear Español, English');
+    expect(els.dirIn.textContent).toBe('They speak Español, English, you hear Italiano');
+  });
+
   it('says the partner language is not known yet instead of inventing one', () => {
-    renderDirection(els, 'it', null);
+    renderDirection(els, 'it', []);
     expect(els.dirOut.textContent).toBe('You speak Italiano');
     expect(els.dirIn.textContent).toBe('Their language appears when they join.');
   });
@@ -172,42 +249,96 @@ describe('renderPartner / renderDirection', () => {
 
 describe('renderCaptions', () => {
   const ex = (id: number, who: Exchange['who']): Exchange => ({ id, who, original: `o${id}`, originalLang: 'es', translated: `t${id}`, translatedLang: 'it' });
+  const sp = (id: string, text: string, over: Record<string, unknown> = {}) => ({
+    speakerId: id, name: id.toUpperCase(), text, original: `orig-${text}`, lang: 'es', settled: false, ...over,
+  });
+  const blocks = () => [...els.stage.querySelectorAll<HTMLElement>('.lc-speaker')];
 
-  it('puts the partner translation big (with language and direction) and their original small', () => {
-    renderCaptions(els, { partner: { text: 'Ciao', original: 'Hola', lang: 'es', settled: false }, mine: null, history: [] });
-    expect(els.caption.textContent).toBe('Ciao');
-    expect(els.captionOriginal.textContent).toBe('Hola');
-    expect(els.captionOriginal.getAttribute('lang')).toBe('es');
+  it('puts the speaker translation big (with language and direction) and their original small', () => {
+    renderCaptions(els, { others: [sp('b', 'Ciao', { original: 'Hola' })], mine: null, history: [] }, 'it');
+    const [b] = blocks();
+    expect(b.querySelector('.lc-caption')?.textContent).toBe('Ciao');
+    expect(b.querySelector('.lc-caption')?.getAttribute('lang')).toBe('it');
+    expect(b.querySelector('.lc-caption-original')?.textContent).toBe('Hola');
+    expect(b.querySelector('.lc-caption-original')?.getAttribute('lang')).toBe('es');
     expect(els.mine.hidden).toBe(true);
   });
 
-  it('collapses the stage until the partner has said something', () => {
-    const stage = els.caption.parentElement as HTMLElement;
-    expect(stage.dataset.empty).toBe('true');
-    renderCaptions(els, { partner: { text: 'Ciao', original: '', lang: 'es', settled: false }, mine: null, history: [] });
-    expect(stage.dataset.empty).toBe('false');
+  it('stacks one block per speaker, in the order given, and keeps ids on the first only', () => {
+    renderCaptions(els, { others: [sp('c', 'due'), sp('b', 'uno'), sp('d', 'tre')], mine: null, history: [] }, 'it', { showNames: true });
+    expect(blocks().map((x) => x.dataset.speaker)).toEqual(['c', 'b', 'd']);
+    expect(blocks().map((x) => x.querySelector('.lc-speaker-name')?.textContent)).toEqual(['C', 'B', 'D']);
+    expect(els.stage.querySelectorAll('#lc-caption')).toHaveLength(1);
+    expect(blocks()[0].querySelector('#lc-caption')?.textContent).toBe('due');
+    expect(els.stage.querySelectorAll('#lc-caption-original')).toHaveLength(1);
+  });
+
+  it('reuses a speaker block when only their text changes, and reorders without rebuilding', () => {
+    renderCaptions(els, { others: [sp('b', 'uno'), sp('c', 'due')], mine: null, history: [] }, 'it');
+    const [first, second] = blocks();
+    renderCaptions(els, { others: [sp('c', 'due bis'), sp('b', 'uno')], mine: null, history: [] }, 'it');
+    expect(blocks()[0]).toBe(second);
+    expect(blocks()[1]).toBe(first);
+    expect(blocks()[0].querySelector('.lc-caption')?.textContent).toBe('due bis');
+    expect(blocks()[1].querySelector('#lc-caption')).toBeNull();
+  });
+
+  it('removes the block of a speaker who is gone', () => {
+    renderCaptions(els, { others: [sp('b', 'uno'), sp('c', 'due')], mine: null, history: [] }, 'it');
+    renderCaptions(els, { others: [sp('c', 'due')], mine: null, history: [] }, 'it');
+    expect(blocks().map((x) => x.dataset.speaker)).toEqual(['c']);
+    renderCaptions(els, { others: [], mine: null, history: [] }, 'it');
+    expect(blocks()).toHaveLength(0);
+  });
+
+  it('shows a speaker name only when asked to and when there is one', () => {
+    renderCaptions(els, { others: [sp('b', 'x', { name: '' }), sp('c', 'y')], mine: null, history: [] }, 'it', { showNames: true });
+    expect(blocks().map((x) => x.querySelector<HTMLElement>('.lc-speaker-name')?.hidden)).toEqual([true, false]);
+    renderCaptions(els, { others: [sp('c', 'y')], mine: null, history: [] }, 'it');
+    expect(blocks()[0].querySelector<HTMLElement>('.lc-speaker-name')?.hidden).toBe(true);
+  });
+
+  it('collapses the stage until somebody has said something', () => {
+    expect(els.stage.dataset.empty).toBe('true');
+    renderCaptions(els, { others: [sp('b', 'Ciao')], mine: null, history: [] });
+    expect(els.stage.dataset.empty).toBe('false');
   });
 
   it('shows what I said small, under a "You said" label', () => {
-    renderCaptions(els, { partner: null, mine: { text: 'Buongiorno', original: '', lang: 'it', settled: true }, history: [] });
+    renderCaptions(els, { others: [], mine: { text: 'Buongiorno', original: '', lang: 'it', settled: true }, history: [] });
     expect(els.mine.hidden).toBe(false);
     expect(els.mineText.textContent).toBe('Buongiorno');
     expect(els.mine.textContent).toContain('You said');
   });
 
   it('marks RTL text with dir="rtl"', () => {
-    renderCaptions(els, { partner: { text: 'مرحبا', original: 'مرحبا', lang: 'ar', settled: false }, mine: null, history: [] });
-    expect(els.captionOriginal.getAttribute('dir')).toBe('rtl');
+    renderCaptions(els, { others: [sp('b', 'مرحبا', { original: 'مرحبا', lang: 'ar' })], mine: null, history: [] });
+    expect(blocks()[0].querySelector('.lc-caption-original')?.getAttribute('dir')).toBe('rtl');
+  });
+
+  it('sets speaker text via textContent only (a stranger\'s words are never HTML)', () => {
+    renderCaptions(els, { others: [sp('b', '<img src=x onerror=alert(1)>', { name: '<b>n</b>' })], mine: null, history: [] }, 'it', { showNames: true });
+    expect(els.stage.querySelector('img')).toBeNull();
+    expect(els.stage.querySelector('b')).toBeNull();
   });
 
   it('renders the history newest first and never beyond the render limit', () => {
     const history = Array.from({ length: HISTORY_RENDER_LIMIT + 5 }, (_, i) => ex(i + 1, i % 2 ? 'me' : 'partner'));
-    renderCaptions(els, { partner: null, mine: null, history });
+    renderCaptions(els, { others: [], mine: null, history });
     expect(els.history.children).toHaveLength(HISTORY_RENDER_LIMIT);
     expect((els.history.firstElementChild as HTMLElement).dataset.exchange).toBe(String(HISTORY_RENDER_LIMIT + 5));
     expect(els.historyTitle.hidden).toBe(false);
-    renderCaptions(els, { partner: null, mine: null, history: [] });
+    renderCaptions(els, { others: [], mine: null, history: [] });
     expect(els.historyTitle.hidden).toBe(true);
+  });
+
+  it('names the speaker on history cards in a room with several people', () => {
+    const history = [{ ...ex(1, 'partner'), speakerId: 'b', speakerName: 'Bea' }, ex(2, 'me')];
+    renderCaptions(els, { others: [], mine: null, history }, 'it', { showNames: true });
+    const cards = [...els.history.querySelectorAll('.lc-card')];
+    expect(cards.find((c) => (c as HTMLElement).dataset.who === 'partner')?.querySelector('.lc-card-label')?.textContent).toBe('Bea');
+    renderCaptions(els, { others: [], mine: null, history }, 'it');
+    expect(els.history.querySelector('[data-who="partner"] .lc-card-label')).toBeNull();
   });
 });
 
@@ -243,5 +374,29 @@ describe('renderOutputOptions', () => {
     expect(els.outputField.hidden).toBe(false);
     expect([...els.output.options].map((o) => o.textContent)).toEqual(['Default', 'Speaker']);
     expect([...els.output.options].map((o) => o.value)).toEqual(['default', 'abc']);
+  });
+});
+
+describe('Enhanced room pieces', () => {
+  it('the speaking line and the host-voice line are hidden quiet statuses until asked for', () => {
+    const els = buildRoom(document, { role: 'guest' });
+    expect(els.speaking.hidden).toBe(true);
+    expect(els.voiceNote.hidden).toBe(true);
+    expect(els.speaking.getAttribute('aria-live')).toBe('polite');
+    expect(els.voiceNote.getAttribute('role')).toBe('status');
+    renderSpeaking(els, true);
+    renderVoiceNote(els, true);
+    expect(els.speaking.hidden).toBe(false);
+    expect(els.voiceNote.hidden).toBe(false);
+    renderSpeaking(els, false);
+    renderVoiceNote(els, false);
+    expect(els.speaking.hidden).toBe(true);
+    expect(els.voiceNote.hidden).toBe(true);
+  });
+
+  it('names Enhanced in the tier badge', () => {
+    const els = buildRoom(document, { role: 'host' });
+    renderTier(els, 'cartesia');
+    expect(els.tier.textContent).toBe('Quality: Enhanced');
   });
 });

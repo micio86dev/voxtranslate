@@ -7,6 +7,7 @@ vi.mock('../net-status', () => ({ setNetworkDegraded: (...a: unknown[]) => setNe
 
 import {
   HISTORY_LIMIT,
+  MAX_SPEAKER_CAPTIONS,
   LiveConversation,
   RECONNECT_MAX_ATTEMPTS,
   buildLiveUrl,
@@ -146,7 +147,7 @@ function harness(over: Record<string, unknown> = {}) {
     onBalance: (b) => balances.push(b),
     onLowBalance: (b) => lows.push(b),
     onSpent: (n) => spents.push(n),
-    onSameLanguage: (a, b) => same.push(`${a}/${b}`),
+    onSameLanguage: (a, b, p) => same.push(`${a}/${b}/${p.peerId}`),
     onMuteChange: (m) => mutes.push(m),
     createSocket: (url: string) => new FakeSocket(url),
     createCapture: () => new FakeCapture(),
@@ -300,8 +301,8 @@ describe('partner presence', () => {
       peers: [{ id: 'peer-a', user_name: 'Me', lang: 'it' }, PARTNER_ROOM_PEER],
     });
     expect(h.last().phase).toBe('live');
-    expect(h.last().partner).toEqual({ peerId: 'peer-b', name: 'Bea', lang: 'es', muted: false });
-    expect(h.convo.direction()).toEqual({ myLang: 'it', partnerLang: 'es' });
+    expect(h.last().partners).toEqual([{ peerId: 'peer-b', name: 'Bea', lang: 'es', muted: false }]);
+    expect(h.convo.direction()).toEqual({ myLang: 'it', partnerLangs: ['es'] });
   });
 
   it('peer_joined then peer_left toggles live and waiting_peer', async () => {
@@ -312,7 +313,7 @@ describe('partner presence', () => {
     expect(h.last().phase).toBe('live');
     h.sock.deliver({ type: 'peer_left', peer_id: 'peer-b' });
     expect(h.last().phase).toBe('waiting_peer');
-    expect(h.convo.direction().partnerLang).toBeNull();
+    expect(h.convo.direction().partnerLangs).toEqual([]);
   });
 
   it('re-sends start when the partner arrives (upstream sessions open lazily per language)', async () => {
@@ -324,17 +325,17 @@ describe('partner presence', () => {
   it('tracks the partner mute state from peer_muted (audio only)', async () => {
     const h = await withPartner();
     h.sock.deliver({ type: 'peer_muted', peer_id: 'peer-b', kind: 'audio', muted: true });
-    expect(h.last().partner?.muted).toBe(true);
+    expect(h.last().partners[0]?.muted).toBe(true);
     h.sock.deliver({ type: 'peer_muted', peer_id: 'peer-b', kind: 'video', muted: false });
-    expect(h.last().partner?.muted).toBe(true);
+    expect(h.last().partners[0]?.muted).toBe(true);
     h.sock.deliver({ type: 'peer_muted', peer_id: 'peer-b', kind: 'audio', muted: false });
-    expect(h.last().partner?.muted).toBe(false);
+    expect(h.last().partners[0]?.muted).toBe(false);
   });
 
   it('warns once when both people speak the same language', async () => {
     const h = await connect();
     h.sock.deliver({ type: 'peer_joined', peer_id: 'peer-b', user_name: 'Bea', lang: 'it' });
-    expect(h.same).toEqual(['it/it']);
+    expect(h.same).toEqual(['it/it/peer-b']);
     const h2 = await withPartner();
     expect(h2.same).toEqual([]);
   });
@@ -351,7 +352,7 @@ describe('subtitles', () => {
       lang: 'it',
       original: 'Hola como',
     });
-    expect(h.lastCaptions().partner).toMatchObject({ text: 'Ciao come', original: 'Hola como', settled: false });
+    expect(h.lastCaptions().others[0]).toMatchObject({ text: 'Ciao come', original: 'Hola como', settled: false });
     h.sock.deliver({
       type: 'subtitle_final',
       speaker_id: 'peer-b',
@@ -360,7 +361,7 @@ describe('subtitles', () => {
       lang: 'es',
       translations: { it: 'Ciao, come stai?', en: 'Hi' },
     });
-    expect(h.lastCaptions().partner).toMatchObject({
+    expect(h.lastCaptions().others[0]).toMatchObject({
       text: 'Ciao, come stai?',
       original: 'Hola, como estas?',
       lang: 'es',
@@ -373,7 +374,7 @@ describe('subtitles', () => {
     const h = await withPartner();
     h.sock.deliver({ type: 'subtitle_interim', speaker_id: 'peer-a', speaker_name: 'Me', text: 'Hello', lang: 'es', original: 'Buongiorno a' });
     expect(h.lastCaptions().mine).toMatchObject({ text: 'Buongiorno a', settled: false });
-    expect(h.lastCaptions().partner).toBeNull();
+    expect(h.lastCaptions().others).toEqual([]);
     h.sock.deliver({
       type: 'subtitle_final',
       speaker_id: 'peer-a',
@@ -388,7 +389,7 @@ describe('subtitles', () => {
   it('falls back to the original when there is no translation into my language (same language)', async () => {
     const h = await withPartner();
     h.sock.deliver({ type: 'subtitle_final', speaker_id: 'peer-b', speaker_name: 'Bea', original: 'Ciao', lang: 'it', translations: {} });
-    expect(h.lastCaptions().partner?.text).toBe('Ciao');
+    expect(h.lastCaptions().others[0]?.text).toBe('Ciao');
   });
 
   it('moves a settled sentence into the history only when the next one starts', async () => {
@@ -401,7 +402,7 @@ describe('subtitles', () => {
     expect(h.lastCaptions().history).toEqual([
       expect.objectContaining({ who: 'partner', original: 'o1', translated: 't1', originalLang: 'es', translatedLang: 'it' }),
     ]);
-    expect(h.lastCaptions().partner?.settled).toBe(false);
+    expect(h.lastCaptions().others[0]?.settled).toBe(false);
   });
 
   it('keeps the history bounded', async () => {
@@ -431,6 +432,175 @@ describe('subtitles', () => {
     h.sock.deliver({ type: 'something_new' });
     expect(h.captions.length).toBe(before);
     expect(h.last().phase).toBe('live');
+  });
+});
+
+// --- a host and up to three guests in one room (spec 0121 multi-guest) --------------------------
+const ROOM_PEERS = [
+  { id: 'peer-b', user_name: 'Bea', lang: 'es' },
+  { id: 'peer-c', user_name: 'Carlo', lang: 'en' },
+  { id: 'peer-d', user_name: 'Dina', lang: 'es' },
+];
+
+async function withThree(over: Record<string, unknown> = {}) {
+  const h = await connect(over);
+  h.sock.deliver({ type: 'room_joined', peer_id: 'peer-a', peers: [{ id: 'peer-a', user_name: 'Me', lang: 'it' }, ...ROOM_PEERS] });
+  return h;
+}
+
+describe('several partners', () => {
+  it('room_joined seeds up to three partners, in order, and direction lists each language once', async () => {
+    const h = await withThree();
+    expect(h.last().phase).toBe('live');
+    expect(h.last().partners.map((p) => p.name)).toEqual(['Bea', 'Carlo', 'Dina']);
+    expect(h.convo.direction()).toEqual({ myLang: 'it', partnerLangs: ['es', 'en'] });
+  });
+
+  it('peer_joined adds, peer_left removes one: still live; the last one leaving is waiting_peer, not ended', async () => {
+    const h = await connect();
+    h.sock.deliver({ type: 'room_joined', peer_id: 'peer-a', peers: [] });
+    h.sock.deliver({ type: 'peer_joined', peer_id: 'peer-b', user_name: 'Bea', lang: 'es' });
+    h.sock.deliver({ type: 'peer_joined', peer_id: 'peer-c', user_name: 'Carlo', lang: 'en' });
+    expect(h.last().partners).toHaveLength(2);
+    h.sock.deliver({ type: 'peer_left', peer_id: 'peer-b' });
+    expect(h.last().phase).toBe('live');
+    expect(h.last().partners.map((p) => p.peerId)).toEqual(['peer-c']);
+    h.sock.deliver({ type: 'peer_left', peer_id: 'peer-c' });
+    expect(h.last().phase).toBe('waiting_peer');
+    expect(h.states.some((c) => c.phase === 'ended')).toBe(false);
+  });
+
+  it('keeps one mute flag per partner', async () => {
+    const h = await withThree();
+    h.sock.deliver({ type: 'peer_muted', peer_id: 'peer-c', kind: 'audio', muted: true });
+    expect(h.last().partners.map((p) => p.muted)).toEqual([false, true, false]);
+  });
+
+  it('warns once per partner who shares my language, including one who arrives later', async () => {
+    const h = await connect();
+    h.sock.deliver({ type: 'room_joined', peer_id: 'peer-a', peers: [{ id: 'peer-b', user_name: 'Bea', lang: 'it' }, { id: 'peer-c', user_name: 'Carlo', lang: 'en' }] });
+    expect(h.same).toEqual(['it/it/peer-b']);
+    h.sock.deliver({ type: 'peer_joined', peer_id: 'peer-d', user_name: 'Dina', lang: 'it-IT' });
+    expect(h.same).toEqual(['it/it/peer-b', 'it/it-IT/peer-d']);
+    h.sock.deliver({ type: 'peer_joined', peer_id: 'peer-d', user_name: 'Dina', lang: 'it-IT' });
+    expect(h.same).toHaveLength(2);
+    // Gone and back (a new seat holder): warned again.
+    h.sock.deliver({ type: 'peer_left', peer_id: 'peer-b' });
+    h.sock.deliver({ type: 'peer_joined', peer_id: 'peer-b', user_name: 'Bea', lang: 'it' });
+    expect(h.same).toHaveLength(3);
+  });
+
+  it('announces who joined and who left, without announcing a reconnect', async () => {
+    const seen: string[] = [];
+    const h = await connect({ onPeerChange: (c: string, p: { name: string }) => seen.push(`${c}:${p.name}`) });
+    h.sock.deliver({ type: 'room_joined', peer_id: 'peer-a', peers: [ROOM_PEERS[0]] });
+    h.sock.deliver({ type: 'peer_joined', peer_id: 'peer-c', user_name: 'Carlo', lang: 'en' });
+    h.sock.deliver({ type: 'peer_left', peer_id: 'peer-b' });
+    h.sock.deliver({ type: 'peer_left', peer_id: 'nobody' });
+    expect(seen).toEqual(['joined:Bea', 'joined:Carlo', 'left:Bea']);
+    h.sock.drop();
+    fireTimer();
+    await flush();
+    sockets[sockets.length - 1].open();
+    sockets[sockets.length - 1].deliver({ type: 'room_joined', peer_id: 'peer-a', peers: [{ id: 'peer-c', user_name: 'Carlo', lang: 'en' }] });
+    expect(seen).toEqual(['joined:Bea', 'joined:Carlo', 'left:Bea']);
+  });
+
+  it('a reconnect room_joined drops whoever is no longer in the room, with their caption', async () => {
+    const h = await withThree();
+    h.sock.deliver({ type: 'subtitle_interim', speaker_id: 'peer-d', speaker_name: 'Dina', text: 'ciao', lang: 'it', original: 'hola' });
+    h.sock.drop();
+    fireTimer();
+    await flush();
+    const s2 = sockets[sockets.length - 1];
+    s2.open();
+    s2.deliver({ type: 'room_joined', peer_id: 'peer-a', peers: [ROOM_PEERS[0]] });
+    expect(h.last().partners.map((p) => p.peerId)).toEqual(['peer-b']);
+    expect(h.lastCaptions().others).toEqual([]);
+  });
+});
+
+describe('captions per speaker', () => {
+  const interim = (h: { sock: FakeSocket }, id: string, name: string, text: string) =>
+    h.sock.deliver({ type: 'subtitle_interim', speaker_id: id, speaker_name: name, text, lang: 'it', original: `o-${text}` });
+  const final = (h: { sock: FakeSocket }, id: string, name: string, n: string, tr: Record<string, string> = { it: `t${n}` }) =>
+    h.sock.deliver({ type: 'subtitle_final', speaker_id: id, speaker_name: name, original: `o${n}`, lang: 'es', translations: tr });
+
+  it('keeps each other speaker on their own line, newest activity first, with their name', async () => {
+    const h = await withThree();
+    interim(h, 'peer-b', 'Bea', 'uno');
+    interim(h, 'peer-c', 'Carlo', 'due');
+    expect(h.lastCaptions().others.map((c) => [c.speakerId, c.name, c.text])).toEqual([
+      ['peer-c', 'Carlo', 'due'],
+      ['peer-b', 'Bea', 'uno'],
+    ]);
+    interim(h, 'peer-b', 'Bea', 'uno e');
+    expect(h.lastCaptions().others.map((c) => c.speakerId)).toEqual(['peer-b', 'peer-c']);
+    expect(h.lastCaptions().mine).toBeNull();
+  });
+
+  it('shows a speaker in MY language from the translations map, falling back to the original', async () => {
+    const h = await withThree();
+    final(h, 'peer-c', 'Carlo', '1', { it: 'Ciao', es: 'Hola' });
+    final(h, 'peer-b', 'Bea', '2', { en: 'only english' });
+    const [bea, carlo] = h.lastCaptions().others;
+    expect(carlo).toMatchObject({ speakerId: 'peer-c', text: 'Ciao', settled: true });
+    expect(bea).toMatchObject({ speakerId: 'peer-b', text: 'o2' });
+  });
+
+  it('falls back to the partner name when the frame carries none', async () => {
+    const h = await withThree();
+    h.sock.deliver({ type: 'subtitle_interim', speaker_id: 'peer-d', text: 'x', lang: 'it' });
+    expect(h.lastCaptions().others[0]).toMatchObject({ name: 'Dina', lang: 'es' });
+  });
+
+  it("moves only that speaker's settled sentence into the history when their next one starts", async () => {
+    const h = await withThree();
+    final(h, 'peer-b', 'Bea', '1');
+    final(h, 'peer-c', 'Carlo', '2');
+    interim(h, 'peer-b', 'Bea', 'nuova');
+    const hist = h.lastCaptions().history;
+    expect(hist.map((x) => [x.speakerId, x.speakerName, x.original])).toEqual([['peer-b', 'Bea', 'o1']]);
+    // Carlo's sentence is still on screen, and only there.
+    expect(h.lastCaptions().others.find((c) => c.speakerId === 'peer-c')?.settled).toBe(true);
+  });
+
+  it('clears a speaker caption when they leave and keeps their last sentence in the history', async () => {
+    const h = await withThree();
+    final(h, 'peer-b', 'Bea', '1');
+    h.sock.deliver({ type: 'peer_left', peer_id: 'peer-b' });
+    expect(h.lastCaptions().others).toEqual([]);
+    expect(h.lastCaptions().history.map((x) => x.original)).toEqual(['o1']);
+    // Their translation arriving late must not bring the caption back.
+    final(h, 'peer-b', 'Bea', '2');
+    expect(h.lastCaptions().others).toEqual([]);
+    interim(h, 'peer-b', 'Bea', 'late');
+    expect(h.lastCaptions().others).toEqual([]);
+    expect(h.lastCaptions().history.map((x) => x.original)).toEqual(['o1', 'o2']);
+  });
+
+  it('is bounded to four speakers: the stalest caption makes room', async () => {
+    const h = await withThree();
+    for (const id of ['s1', 's2', 's3', 's4', 's5']) interim(h, id, id, id);
+    expect(h.lastCaptions().others.map((c) => c.speakerId)).toEqual(['s5', 's4', 's3', 's2']);
+    expect(MAX_SPEAKER_CAPTIONS).toBe(4);
+  });
+
+  it('my own sentence shows what the first translated language of my listeners heard', async () => {
+    const h = await withThree();
+    h.sock.deliver({ type: 'subtitle_final', speaker_id: 'peer-a', speaker_name: 'Me', original: 'Ciao a tutti', lang: 'it', translations: { en: 'Hello all', es: 'Hola' } });
+    h.sock.deliver({ type: 'subtitle_interim', speaker_id: 'peer-a', speaker_name: 'Me', text: '', lang: 'es', original: 'ancora' });
+    const mine = h.lastCaptions().history.find((x) => x.who === 'me');
+    expect(mine).toMatchObject({ translated: 'Hola', translatedLang: 'es' });
+    expect(h.lastCaptions().others).toEqual([]);
+  });
+
+  it('keeps the playback sequence guard per speaker (one stream each)', async () => {
+    const h = await withThree();
+    h.sock.deliver({ type: 'translated_audio', speaker_id: 'peer-b', lang: 'it', seq: 1, pcm16_b64: 'AA' });
+    h.sock.deliver({ type: 'translated_audio', speaker_id: 'peer-c', lang: 'it', seq: 1, pcm16_b64: 'BB' });
+    h.sock.deliver({ type: 'translated_audio', speaker_id: 'peer-d', lang: 'it', seq: 1, pcm16_b64: 'CC' });
+    expect(h.playback.enqueued).toEqual([['peer-b', 1, 'AA'], ['peer-c', 1, 'BB'], ['peer-d', 1, 'CC']]);
   });
 });
 
@@ -717,6 +887,48 @@ describe('server verdicts', () => {
   });
 });
 
+describe('engine_downgraded', () => {
+  const frame = { type: 'engine_downgraded', peer_id: 'peer-a', from: 'gemini_live_translate', to: 'standard', reason: 'premium_at_capacity' };
+
+  it('tells the page once and never ends or interrupts the conversation', async () => {
+    const seen: Array<{ from: string; to: string; reason: string }> = [];
+    const h = await withPartner({ engine: 'gemini_live_translate', onEngineDowngraded: (d: { from: string; to: string; reason: string }) => seen.push(d) });
+    const before = h.states.length;
+    h.sock.deliver(frame);
+    expect(seen).toEqual([{ from: 'gemini_live_translate', to: 'standard', reason: 'premium_at_capacity' }]);
+    expect(h.last().phase).toBe('live');
+    expect(h.states.length).toBe(before);
+    expect(h.sock.closed).toHaveLength(0);
+    expect(h.notices).toEqual([]);
+    expect(h.media.tracks[0].stop).not.toHaveBeenCalled();
+    // The conversation goes on: a caption still arrives.
+    h.sock.deliver({ type: 'subtitle_final', speaker_id: 'peer-b', text: 'hola', lang: 'es', seq: 1 });
+    expect(h.last().phase).toBe('live');
+  });
+
+  it('is harmless when nobody listens and when the frame is incomplete', async () => {
+    const seen: unknown[] = [];
+    const h = await withPartner({ onEngineDowngraded: (d: unknown) => seen.push(d) });
+    h.sock.deliver({ type: 'engine_downgraded' });
+    expect(seen).toEqual([{ from: '', to: 'standard', reason: '' }]);
+    const g = await withPartner();
+    g.sock.deliver(frame);
+    expect(g.last().phase).toBe('live');
+  });
+
+  it('keeps the stored session on the tier it now runs on, so a reload does not claim Premium', async () => {
+    const h = await withPartner({ engine: 'gemini_live_translate' });
+    expect(JSON.parse(sessionStorage.getItem(STORAGE_KEY) ?? '{}').engine).toBe('gemini_live_translate');
+    h.sock.deliver(frame);
+    expect(JSON.parse(sessionStorage.getItem(STORAGE_KEY) ?? '{}').engine).toBe('standard');
+  });
+
+  it('a session without an engine stores none (backward compatible)', async () => {
+    await withPartner();
+    expect(JSON.parse(sessionStorage.getItem(STORAGE_KEY) ?? '{}')).not.toHaveProperty('engine');
+  });
+});
+
 describe('end and release', () => {
   it('end() asks the server to end it (best effort), releases every resource, clears storage', async () => {
     const h = await withPartner();
@@ -731,6 +943,39 @@ describe('end and release', () => {
     expect(h.wakeLock.release).toHaveBeenCalled();
     expect(sessionStorage.getItem(STORAGE_KEY)).toBeNull();
     expect(setNetworkDegraded).toHaveBeenLastCalledWith(false);
+  });
+
+  it('a guest hanging up in a multi-guest conversation LEAVES it: left_by_me, storage cleared', async () => {
+    const h = await withPartner({ role: 'guest', maxGuests: 3 });
+    h.convo.end();
+    expect(h.endRest).toHaveBeenCalledWith('s1', 'LIVE-TOKEN');
+    expect(h.last()).toMatchObject({ phase: 'ended', endReason: 'left_by_me' });
+    expect(sessionStorage.getItem(STORAGE_KEY)).toBeNull();
+  });
+
+  it('the host ending a multi-guest conversation is still an end, and so is a guest in a pair', async () => {
+    const host = await withPartner({ role: 'host', maxGuests: 3 });
+    host.convo.end();
+    expect(host.last().endReason).toBe('ended_by_me');
+    const pair = await withPartner({ role: 'guest', maxGuests: 1 });
+    pair.convo.end();
+    expect(pair.last().endReason).toBe('ended_by_me');
+  });
+
+  it('trusts the server when it answers {ended:false,left:true} for a session whose size we did not know', async () => {
+    const h = await withPartner({
+      role: 'guest',
+      endSessionImpl: async () => ({ ok: true, data: { ended: false, left: true } }),
+    });
+    h.convo.end();
+    expect(h.last().endReason).toBe('ended_by_me');
+    await flush();
+    expect(h.last().endReason).toBe('left_by_me');
+  });
+
+  it('remembers how many guests the invitation admits, so a reload keeps the right behaviour', async () => {
+    await withPartner({ role: 'host', maxGuests: 2 });
+    expect(JSON.parse(sessionStorage.getItem(STORAGE_KEY) ?? '{}').maxGuests).toBe(2);
   });
 
   it('end() still tears down when the REST call rejects', async () => {
@@ -835,5 +1080,370 @@ describe('output device', () => {
     await expect(h.convo.listOutputDevices()).resolves.toEqual([devices[0]]);
     const bad = await connect({ enumerateDevices: async () => Promise.reject(new Error('x')) });
     await expect(bad.convo.listOutputDevices()).resolves.toEqual([]);
+  });
+});
+
+// --- Enhanced (Cartesia on the phone, spec 0121 S5) -------------------------------------------
+
+class FakeEnhanced {
+  opened = 0;
+  started = 0;
+  stopped = 0;
+  closed = 0;
+  muted: boolean[] = [];
+  gated: boolean[] = [];
+  spoken: Array<{ speakerId: string; segmentId: string; text: string; voiceId: string | null }> = [];
+  cancels = 0;
+  openResult = true;
+  constructor(readonly deps: import('./enhanced').EnhancedDeps) {
+    enhancedEngines.push(this);
+  }
+  async open() {
+    this.opened += 1;
+    return this.openResult;
+  }
+  start() {
+    this.started += 1;
+  }
+  stop() {
+    this.stopped += 1;
+  }
+  setMuted(m: boolean) {
+    this.muted.push(m);
+  }
+  setGated(g: boolean) {
+    this.gated.push(g);
+  }
+  speak(item: { speakerId: string; segmentId: string; text: string; voiceId: string | null }) {
+    this.spoken.push(item);
+  }
+  cancelSpeech() {
+    this.cancels += 1;
+  }
+  close() {
+    this.closed += 1;
+  }
+}
+let enhancedEngines: FakeEnhanced[] = [];
+
+function enhancedHarness(over: Record<string, unknown> = {}) {
+  const downgrades: Array<{ from: string; to: string; reason: string }> = [];
+  const speaking: boolean[] = [];
+  const token = vi.fn(async () => ({ ok: false as const, status: 500, code: 'x' }));
+  const h = harness({
+    engine: 'cartesia',
+    createEnhanced: (d: import('./enhanced').EnhancedDeps) => new FakeEnhanced(d),
+    enhancedSessionImpl: token,
+    isRestricted: async () => false,
+    onEngineDowngraded: (c: { from: string; to: string; reason: string }) => downgrades.push(c),
+    onSpeaking: (s: boolean) => speaking.push(s),
+    ...over,
+  });
+  return { ...h, downgrades, speaking, token };
+}
+
+async function enhancedConnected(over: Record<string, unknown> = {}) {
+  const h = enhancedHarness(over);
+  await h.convo.start();
+  const sock = sockets[sockets.length - 1];
+  sock.open();
+  await flush();
+  return { ...h, sock, engine: enhancedEngines[enhancedEngines.length - 1] };
+}
+
+describe('Enhanced mode', () => {
+  beforeEach(() => {
+    enhancedEngines = [];
+  });
+
+  it('runs the Enhanced engine instead of PCM capture, and does not send `start` itself', async () => {
+    const { sock, engine } = await enhancedConnected();
+    expect(enhancedEngines).toHaveLength(1);
+    expect(captures).toHaveLength(0);
+    expect(engine.opened).toBe(1);
+    expect(sock.controls()).not.toContainEqual({ type: 'start' });
+    // Once the token is in, recognition starts (the engine sends `start` when its socket is up).
+    expect(engine.started).toBe(1);
+  });
+
+  it('hands the engine the live token fetch, my language and the stream; its control frames go to the live socket', async () => {
+    const { sock, engine, token, media } = await enhancedConnected();
+    expect(engine.deps.stream).toBe(media.stream);
+    expect(engine.deps.myLang).toBe('it');
+    await engine.deps.fetchToken();
+    expect(token).toHaveBeenCalledWith('s1', 'LIVE-TOKEN');
+    engine.deps.control({ type: 'translate_text', segment_id: 'x', text: 'ciao', final: false });
+    expect(sock.controls()).toContainEqual({ type: 'translate_text', segment_id: 'x', text: 'ciao', final: false });
+  });
+
+  it('does not start recognising while muted, and unmuting starts it', async () => {
+    const h = enhancedHarness();
+    h.convo.setMuted(true);
+    await h.convo.start();
+    sockets[sockets.length - 1].open();
+    await flush();
+    const engine = enhancedEngines[0];
+    expect(engine.started).toBe(0);
+    expect(sockets[0].controls()).toContainEqual({ type: 'mute_audio', muted: true });
+    h.convo.setMuted(false);
+    expect(engine.muted).toEqual([false]);
+  });
+
+  it('mute is told to the server and to the engine', async () => {
+    const { convo, sock, engine } = await enhancedConnected();
+    convo.setMuted(true);
+    expect(sock.controls()).toContainEqual({ type: 'mute_audio', muted: true });
+    expect(engine.muted).toEqual([true]);
+  });
+
+  it('shows my own words from my recogniser: interim, then a settled sentence that goes to the history next', async () => {
+    const h = await enhancedConnected();
+    h.engine.deps.onMine('Buon', false);
+    expect(h.lastCaptions().mine).toMatchObject({ text: 'Buon', settled: false, lang: 'it' });
+    h.engine.deps.onMine('Buongiorno a tutti', true);
+    expect(h.lastCaptions().mine).toMatchObject({ text: 'Buongiorno a tutti', settled: true });
+    h.engine.deps.onMine('Ancora', false);
+    expect(h.lastCaptions().history.map((x) => [x.who, x.original, x.translated])).toEqual([['me', 'Buongiorno a tutti', '']]);
+  });
+
+  it('speaks what the server says to speak, with the voice it names (or none)', async () => {
+    const { sock, engine } = await enhancedConnected();
+    sock.deliver({ type: 'enhanced_speak', speaker_id: 'peer-b', segment_id: 'seg1', lang: 'it', text: 'Ciao a tutti', voice_id: 'HOST-VOICE' });
+    sock.deliver({ type: 'enhanced_speak', speaker_id: 'peer-b', segment_id: 'seg2', lang: 'it', text: 'Seconda', voice_id: null });
+    expect(engine.spoken).toEqual([
+      { speakerId: 'peer-b', segmentId: 'seg1', text: 'Ciao a tutti', voiceId: 'HOST-VOICE' },
+      { speakerId: 'peer-b', segmentId: 'seg2', text: 'Seconda', voiceId: null },
+    ]);
+  });
+
+  it('ignores an enhanced_speak of my own, one without text, and one on a Standard conversation', async () => {
+    const { sock, engine } = await enhancedConnected();
+    sock.deliver({ type: 'enhanced_speak', speaker_id: 'peer-a', segment_id: 's', lang: 'it', text: 'io', voice_id: null });
+    sock.deliver({ type: 'enhanced_speak', speaker_id: 'peer-b', segment_id: 's', lang: 'it', voice_id: null });
+    expect(engine.spoken).toEqual([]);
+    const std = await connect();
+    std.sock.deliver({ type: 'enhanced_speak', speaker_id: 'peer-b', segment_id: 's', lang: 'it', text: 'x', voice_id: null });
+    expect(enhancedEngines).toHaveLength(1);
+  });
+
+  it('the echo guard gates the recogniser while a translation plays, shows "speaking", and barge-in cancels the queue', async () => {
+    const h = await enhancedConnected();
+    h.playback.listener?.(true);
+    expect(h.engine.gated).toEqual([true]);
+    expect(h.speaking).toEqual([true]);
+    h.playback.listener?.(false);
+    expect(h.engine.gated).toEqual([true, false]);
+    expect(h.speaking).toEqual([true, false]);
+  });
+
+  it('talking over the translation (barge-in) drops what is waiting to be spoken', async () => {
+    let t = 0;
+    const h = await enhancedConnected({ now: () => t });
+    h.playback.listener?.(true);
+    const guard = (h.convo as unknown as { guard: { onLevel: (l: number) => void } }).guard;
+    guard.onLevel(0.5);
+    t = 400;
+    guard.onLevel(0.5);
+    expect(h.engine.cancels).toBe(1);
+    expect(h.playback.resets).toBe(1);
+  });
+
+  it('a gated guard before the engine exists is applied to it', async () => {
+    const h = enhancedHarness();
+    await h.convo.start();
+    h.playback.listener?.(true);
+    sockets[0].open();
+    await flush();
+    expect(enhancedEngines[0].gated).toContain(true);
+  });
+
+  it('"speaking" is Enhanced-only: a Standard conversation never reports it', async () => {
+    const speaking: boolean[] = [];
+    const h = await connect({ onSpeaking: (s: boolean) => speaking.push(s) });
+    h.playback.listener?.(true);
+    expect(speaking).toEqual([]);
+  });
+
+  describe('falling back', () => {
+    it.each(['rate_limited', 'enhanced_unavailable', 'insufficient_balance', 'cartesia_unreachable', 'restricted_network'])(
+      'sends enhanced_fallback{%s} and waits for the server before changing path',
+      async (reason) => {
+        const { sock, engine } = await enhancedConnected();
+        engine.deps.onFailure({ kind: 'fallback', reason });
+        expect(sock.controls()).toContainEqual({ type: 'enhanced_fallback', reason });
+        expect(captures).toHaveLength(0); // still no PCM: that is the server's call
+      },
+    );
+
+    it('engine_downgraded then closes Cartesia, starts PCM exactly like a Standard conversation and says so', async () => {
+      const { sock, engine, downgrades, convo, speaking } = await enhancedConnected();
+      sock.deliver({ type: 'engine_downgraded', peer_id: 'peer-a', from: 'cartesia', to: 'standard', reason: 'enhanced_unavailable' });
+      expect(engine.closed).toBe(1);
+      expect(downgrades).toEqual([{ from: 'cartesia', to: 'standard', reason: 'enhanced_unavailable' }]);
+      expect(captures).toHaveLength(1);
+      expect(captures[0].started).toBe(1);
+      expect(sock.controls().filter((c) => (c as { type: string }).type === 'start')).toHaveLength(1);
+      expect(speaking.at(-1)).toBe(false);
+      expect(JSON.parse(sessionStorage.getItem(STORAGE_KEY) as string).engine).toBe('standard');
+      // From here on enhanced_speak means nothing.
+      sock.deliver({ type: 'enhanced_speak', speaker_id: 'peer-b', segment_id: 's', lang: 'it', text: 'x', voice_id: null });
+      expect(enhancedEngines).toHaveLength(1);
+      convo.setMuted(true);
+      expect(captures[0].muted).toEqual([true]);
+    });
+
+    it('a downgrade that finds the engine already closed by its own failure still switches to PCM', async () => {
+      const { sock, engine } = await enhancedConnected();
+      engine.deps.onFailure({ kind: 'fallback', reason: 'rate_limited' });
+      sock.deliver({ type: 'engine_downgraded', from: 'cartesia', to: 'standard', reason: 'enhanced_unavailable' });
+      expect(captures).toHaveLength(1);
+    });
+
+    it('a muted phone does not start PCM streaming after the downgrade', async () => {
+      const { sock, convo } = await enhancedConnected();
+      convo.setMuted(true);
+      sock.deliver({ type: 'engine_downgraded', from: 'cartesia', to: 'standard', reason: 'enhanced_unavailable' });
+      expect(captures).toHaveLength(1);
+      expect(captures[0].started).toBe(0);
+      expect(sock.controls().filter((c) => (c as { type: string }).type === 'start')).toHaveLength(0);
+    });
+
+    it('not_enhanced (a downgrade this phone missed) continues as Standard at once', async () => {
+      const { sock, engine, downgrades } = await enhancedConnected();
+      engine.deps.onFailure({ kind: 'not_enhanced' });
+      expect(captures).toHaveLength(1);
+      expect(captures[0].started).toBe(1);
+      expect(downgrades).toEqual([{ from: 'cartesia', to: 'standard', reason: 'not_enhanced' }]);
+      expect(sock.controls().filter((c) => (c as { type: string }).type === 'enhanced_fallback')).toEqual([]);
+    });
+
+    it('a gone seat is a notice, and the live socket decides the rest', async () => {
+      const { engine, notices, last } = await enhancedConnected();
+      engine.deps.onFailure({ kind: 'gone', code: 'session_ended' });
+      expect(notices).toEqual(['enhanced_auth']);
+      expect(last().phase).not.toBe('failed');
+    });
+
+    it('a failure from an engine that has been replaced is ignored', async () => {
+      const { sock, engine } = await enhancedConnected();
+      sock.drop();
+      engine.deps.onFailure({ kind: 'fallback', reason: 'rate_limited' });
+      expect(sock.controls().filter((c) => (c as { type: string }).type === 'enhanced_fallback')).toEqual([]);
+    });
+
+    it('a Premium-at-capacity downgrade on a Standard conversation touches nothing in Enhanced terms', async () => {
+      const h = await connect({ engine: 'gemini_live_translate' });
+      h.sock.deliver({ type: 'engine_downgraded', from: 'gemini_live_translate', to: 'standard', reason: 'premium_at_capacity' });
+      expect(captures).toHaveLength(1);
+      expect(enhancedEngines).toHaveLength(0);
+    });
+
+    it('a token refused when the live socket is gone just waits for the reconnect', async () => {
+      const { sock, engine } = await enhancedConnected();
+      sock.readyState = 3;
+      engine.deps.onFailure({ kind: 'not_enhanced' });
+      expect(captures).toHaveLength(0); // PCM attaches on the next open
+    });
+  });
+
+  it('enhanced_not_active re-opens the meter, but not more than once every few seconds, and never while muted', async () => {
+    let t = 0;
+    const { sock, convo } = await enhancedConnected({ now: () => t });
+    sock.deliver({ type: 'error', code: 'enhanced_not_active' });
+    sock.deliver({ type: 'error', code: 'enhanced_not_active' });
+    expect(sock.controls().filter((c) => (c as { type: string }).type === 'start')).toHaveLength(1);
+    t = 4000;
+    sock.deliver({ type: 'error', code: 'enhanced_not_active' });
+    expect(sock.controls().filter((c) => (c as { type: string }).type === 'start')).toHaveLength(2);
+    convo.setMuted(true);
+    t = 9000;
+    sock.deliver({ type: 'error', code: 'enhanced_not_active' });
+    expect(sock.controls().filter((c) => (c as { type: string }).type === 'start')).toHaveLength(2);
+  });
+
+  it('translation_unavailable and text_too_long reach the view as notices', async () => {
+    const { sock, notices } = await enhancedConnected();
+    sock.deliver({ type: 'error', code: 'translation_unavailable' });
+    sock.deliver({ type: 'error', code: 'text_too_long' });
+    expect(notices).toEqual(['translation_unavailable', 'text_too_long']);
+    sock.deliver({ type: 'error', code: 'fallback_not_allowed' });
+    expect(notices.at(-1)).toBe('fallback_not_allowed');
+    expect(notices).toHaveLength(3); // a notice, not a fatal end: the conversation goes on
+  });
+
+  it('a peer joining does not re-send `start` (the engine owns the meter)', async () => {
+    const { sock } = await enhancedConnected();
+    sock.deliver({ type: 'peer_joined', ...PARTNER_PEER });
+    expect(sock.controls().filter((c) => (c as { type: string }).type === 'start')).toHaveLength(0);
+  });
+
+  describe('cleanup', () => {
+    it('end() closes the engine', async () => {
+      const { convo, engine } = await enhancedConnected();
+      convo.end();
+      expect(engine.closed).toBeGreaterThanOrEqual(1);
+      expect(engine.stopped).toBeGreaterThanOrEqual(1);
+    });
+
+    it('release() closes the engine and keeps the stored session', async () => {
+      const { convo, engine } = await enhancedConnected();
+      convo.release();
+      expect(engine.closed).toBeGreaterThanOrEqual(1);
+      expect(sessionStorage.getItem(STORAGE_KEY)).not.toBeNull();
+    });
+
+    it('a session that ends closes the engine', async () => {
+      const { sock, engine } = await enhancedConnected();
+      sock.deliver({ type: 'session_state', status: 'ended', reason: 'ended_by_host' });
+      expect(engine.closed).toBeGreaterThanOrEqual(1);
+    });
+
+    it('a dropped socket closes the engine, and the reconnect builds a fresh one (a new token)', async () => {
+      const { sock, engine, probe } = await enhancedConnected();
+      sock.drop();
+      expect(engine.closed).toBe(1);
+      fireTimer();
+      await flush();
+      expect(probe).toHaveBeenCalled();
+      sockets[sockets.length - 1].open();
+      await flush();
+      expect(enhancedEngines).toHaveLength(2);
+      expect(enhancedEngines[1].opened).toBe(1);
+    });
+
+    it('a reconnect adopts the tier the server reports now (a fallback this phone missed)', async () => {
+      const probe = vi.fn(async (): Promise<Probe> => ({
+        ok: true,
+        data: { session: { id: 's1', status: 'active', host_lang: 'it', created_at: '', expires_at: '', participants: [], engine: 'standard' }, you: { peer_id: 'peer-a', role: 'host' } },
+      }));
+      const { sock } = await enhancedConnected({ getSessionImpl: probe });
+      sock.drop();
+      fireTimer();
+      await flush();
+      sockets[sockets.length - 1].open();
+      await flush();
+      expect(enhancedEngines).toHaveLength(1); // no new Enhanced engine
+      expect(captures).toHaveLength(1); // PCM instead
+    });
+
+    it('an engine whose token failed does not start recognising', async () => {
+      const h = enhancedHarness();
+      await h.convo.start();
+      // The next engine to be made reports a failed open.
+      const orig = h.convo as unknown as { opts: { createEnhanced: (d: import('./enhanced').EnhancedDeps) => FakeEnhanced } };
+      orig.opts.createEnhanced = (d) => {
+        const e = new FakeEnhanced(d);
+        e.openResult = false;
+        return e;
+      };
+      sockets[0].open();
+      await flush();
+      expect(enhancedEngines[0].started).toBe(0);
+    });
+  });
+
+  it('the stored session keeps the voice-clone flag across the conversation\'s own saves', async () => {
+    await enhancedConnected({ voiceClone: true });
+    expect(JSON.parse(sessionStorage.getItem(STORAGE_KEY) as string)).toMatchObject({ engine: 'cartesia', voiceClone: true });
   });
 });

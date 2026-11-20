@@ -58,7 +58,7 @@ function setNavigatorLanguage(l: string) {
   Object.defineProperty(navigator, 'language', { value: l, configurable: true });
   Object.defineProperty(navigator, 'languages', { value: [l], configurable: true });
 }
-const ctx = (phase: string, over: Record<string, unknown> = {}) => ({ phase, partner: null, endReason: null, failure: null, ...over });
+const ctx = (phase: string, over: Record<string, unknown> = {}) => ({ phase, partners: [], endReason: null, failure: null, ...over });
 const staffPartner = { peerId: 'st1', name: 'Giulia', lang: 'it', muted: false };
 
 async function submit(consent = true) {
@@ -293,7 +293,7 @@ describe('nobody answers', () => {
 
   it('an ending AFTER the staff joined is the conversation\'s own ended screen, not "nobody was available"', async () => {
     const room = await waiting();
-    room.onState?.(ctx('live', { partner: staffPartner }));
+    room.onState?.(ctx('live', { partners: [staffPartner] }));
     room.onState?.(ctx('ended', { endReason: 'ended_by_staff' }));
     expect($('ld-nobody').hidden).toBe(true);
     expect(room.destroy).not.toHaveBeenCalled();
@@ -302,7 +302,7 @@ describe('nobody answers', () => {
 
   it('an expiry after the staff joined and left is also not "nobody was available"', async () => {
     const room = await waiting();
-    room.onState?.(ctx('live', { partner: staffPartner }));
+    room.onState?.(ctx('live', { partners: [staffPartner] }));
     room.onState?.(ctx('waiting_peer'));
     room.onState?.(ctx('ended', { endReason: 'expired' }));
     expect($('ld-nobody').hidden).toBe(true);
@@ -334,7 +334,7 @@ describe('the staff arrives', () => {
     api.scanDesk.mockResolvedValue({ ok: true, data: SCANNED });
     await mountLiveDesk();
     await submit();
-    rooms[0].onState?.(ctx('live', { partner: staffPartner }));
+    rooms[0].onState?.(ctx('live', { partners: [staffPartner] }));
     expect($('ld-wait').hidden).toBe(true);
     expect(vi.getTimerCount()).toBe(0);
     await vi.advanceTimersByTimeAsync(120_000);
