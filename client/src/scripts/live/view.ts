@@ -285,18 +285,24 @@ export function buildRoom(doc: Doc, opts: { role: Role; maxGuests?: number }): R
   const end = button(doc, 'lc-end', 'btn-primary lc-ctl lc-end', endKeys.button);
   controls.append(mute, end);
 
-  const confirm = el(doc, 'div', 'card lc-confirm');
+  // A modal over the whole page, like the confirmations in the rest of the app. The control bar is
+  // sticky at the bottom of the screen, so a card that followed it in the page flow opened below the
+  // fold on a phone and nobody saw it. The wrapper is the backdrop; a tap on it cancels (room.ts).
+  const confirm = el(doc, 'div', 'lc-confirm-overlay');
   confirm.id = 'lc-confirm';
-  confirm.setAttribute('role', 'alertdialog');
-  confirm.setAttribute('aria-labelledby', 'lc-confirm-text');
   confirm.hidden = true;
+  const confirmCard = el(doc, 'div', 'card lc-confirm');
+  confirmCard.setAttribute('role', 'alertdialog');
+  confirmCard.setAttribute('aria-modal', 'true');
+  confirmCard.setAttribute('aria-labelledby', 'lc-confirm-text');
   const confirmText = i18n(doc, 'p', 'lc-confirm-text', endKeys.confirm);
   confirmText.id = 'lc-confirm-text';
   const confirmBtns = el(doc, 'div', 'lc-confirm-btns');
   const endNo = button(doc, 'lc-end-no', 'btn-ghost lc-ctl', 'cancel');
   const endYes = button(doc, 'lc-end-yes', 'btn-primary lc-ctl lc-end', endKeys.yes);
   confirmBtns.append(endNo, endYes);
-  confirm.append(confirmText, confirmBtns);
+  confirmCard.append(confirmText, confirmBtns);
+  confirm.append(confirmCard);
 
   // AI Act art. 50: whoever hears a translation or a translated voice is told it is AI-generated.
   // Static and on screen from the first paint, for the host, the guests and the desk staff alike.

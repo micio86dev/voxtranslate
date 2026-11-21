@@ -238,10 +238,39 @@ export function mountRoom(opts: RoomOptions): RoomHandle {
     els.confirm.hidden = false;
     els.endYes.focus();
   });
-  els.endNo.addEventListener('click', () => {
+  const cancelEnd = (): void => {
     els.confirm.hidden = true;
     els.end.focus();
+  };
+  els.endNo.addEventListener('click', cancelEnd);
+  // A tap on the dark backdrop (the overlay itself, not the dialog inside it) cancels.
+  els.confirm.addEventListener('click', (ev) => {
+    if (ev.target === els.confirm) cancelEnd();
   });
+  // While the modal is open: Escape cancels, and Tab cycles between its two buttons instead of
+  // walking off to the page behind it.
+  const onConfirmKey = (ev: KeyboardEvent): void => {
+    if (els.confirm.hidden) return;
+    if (ev.key === 'Escape') {
+      ev.preventDefault();
+      cancelEnd();
+      return;
+    }
+    if (ev.key !== 'Tab') return;
+    const [first, last] = [els.endNo, els.endYes];
+    const active = els.root.ownerDocument.activeElement;
+    if (ev.shiftKey && active === first) {
+      ev.preventDefault();
+      last.focus();
+    } else if (!ev.shiftKey && active === last) {
+      ev.preventDefault();
+      first.focus();
+    } else if (active !== first && active !== last) {
+      ev.preventDefault();
+      first.focus();
+    }
+  };
+  document.addEventListener('keydown', onConfirmKey);
   els.endYes.addEventListener('click', () => {
     els.confirm.hidden = true;
     convo.end();
@@ -271,6 +300,7 @@ export function mountRoom(opts: RoomOptions): RoomHandle {
     destroy(): void {
       destroyed = true;
       window.removeEventListener('pagehide', onPageHide);
+      document.removeEventListener('keydown', onConfirmKey);
       convo.release();
       els.root.remove();
     },

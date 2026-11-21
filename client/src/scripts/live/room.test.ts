@@ -172,6 +172,61 @@ describe('mountRoom', () => {
     expect(made[0].ended).toBe(1);
   });
 
+  describe('the end confirmation is a modal over the page', () => {
+    const confirm = () => host.querySelector('#lc-confirm') as HTMLElement;
+    const open = () => (host.querySelector('#lc-end') as HTMLButtonElement).click();
+
+    it('moves focus to the confirming button when it opens', () => {
+      mount();
+      open();
+      expect(document.activeElement).toBe(host.querySelector('#lc-end-yes'));
+    });
+
+    it('Escape cancels it, does not end the conversation, and gives focus back to End', () => {
+      mount();
+      open();
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      expect(confirm().hidden).toBe(true);
+      expect(made[0].ended).toBe(0);
+      expect(document.activeElement).toBe(host.querySelector('#lc-end'));
+    });
+
+    it('Escape does nothing while the confirmation is closed', () => {
+      mount();
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      expect(confirm().hidden).toBe(true);
+      expect(document.activeElement).not.toBe(host.querySelector('#lc-end'));
+    });
+
+    it('a tap on the dark backdrop cancels, a tap inside the dialog does not', () => {
+      mount();
+      open();
+      (host.querySelector('#lc-confirm-text') as HTMLElement).click();
+      expect(confirm().hidden).toBe(false);
+      confirm().click();
+      expect(confirm().hidden).toBe(true);
+      expect(made[0].ended).toBe(0);
+    });
+
+    it('keeps Tab inside the two buttons while it is open', () => {
+      mount();
+      open();
+      const yes = host.querySelector('#lc-end-yes') as HTMLButtonElement;
+      const no = host.querySelector('#lc-end-no') as HTMLButtonElement;
+      yes.focus();
+      const tab = (shiftKey: boolean) => {
+        const ev = new KeyboardEvent('keydown', { key: 'Tab', shiftKey, bubbles: true, cancelable: true });
+        document.dispatchEvent(ev);
+        return ev.defaultPrevented;
+      };
+      // "No" comes first, "Yes" last: Tab on the last wraps to the first, Shift+Tab the other way.
+      expect(tab(false)).toBe(true);
+      expect(document.activeElement).toBe(no);
+      expect(tab(true)).toBe(true);
+      expect(document.activeElement).toBe(yes);
+    });
+  });
+
   it('the headphones toggle reaches the engine and starts from its saved value', () => {
     mount();
     const box = host.querySelector('#lc-headphones') as HTMLInputElement;
