@@ -1008,7 +1008,7 @@
   "liveTierDowngraded": "{from} ya cika a yanzu. Ana ci gaba da {to}, ana caji a farashin {to}.",
   "liveTierDowngradedGuest": "{from} ya cika a yanzu, saboda haka wannan tattaunawar tana ci gaba da {to}.",
   "liveErrEngineNotAvailable": "Wannan ingancin fassara ba ya samuwa a yanzu. Zaɓi wani.",
-  "liveErrEngineSoon": "Wannan ingancin fassara bai samu ba tukuna. Zaɓi wani.",
+  "liveErrEngineSoon": "Wannan ingancin fassara ba ya samuwa tukuna. Zaɓi wani.",
   "liveErrEngineNotAllowed": "Irin wannan tattaunawar tana amfani da fassarar Standard kawai.",
   "liveErrBusyTier": "Wannan ingancin ba shi da sarari a yanzu. Gwada Standard maimakon haka.",
   "liveVoiceClone": "Yi magana da muryata da aka kwaikwaya",

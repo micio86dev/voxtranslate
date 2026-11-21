@@ -28,6 +28,8 @@ L'uso del Servizio è soggetto alla nostra Politica di uso consentito, che è pa
 
 Sei l'unico responsabile dell'audio, del video e del testo che trasmetti. Per mantenere il Servizio sicuro, applichiamo un filtro automatico dei contenuti al parlato trascritto e alla chat, e mettiamo a disposizione strumenti per segnalare e bloccare i partecipanti. Possiamo sospendere o chiudere gli account, rimuovere contenuti o limitare l'accesso quando riteniamo ragionevolmente che questi Termini o la Politica di uso consentito siano stati violati.
 
+**Live Connect.** Se avvii una conversazione Live Connect sei responsabile di invitare solo persone maggiorenni e disposte a partecipare, di informarle se conservi una trascrizione e di avere una base giuridica per farlo. Non usarla per registrare o monitorare persone a loro insaputa. Le aziende che installano un desk Live Connect sono responsabili di informare i propri visitatori e della propria base giuridica: l'azienda è titolare delle conversazioni tenute al suo desk e noi agiamo come suo responsabile del trattamento.
+
 ## 7. Privacy
 
 La nostra Informativa sulla privacy spiega quali dati trattiamo e perché. Utilizzando il Servizio riconosci che l'audio è trattato in tempo reale per fornire trascrizione e traduzione, come ivi descritto.

@@ -28,6 +28,8 @@ Your use of the Service is subject to our Acceptable Use Policy, which is incorp
 
 You are solely responsible for the audio, video, and text you transmit. To keep the Service safe, we apply automated content filtering to transcribed speech and chat, and provide tools to report and block participants. We may suspend or terminate accounts, remove content, or restrict access where we reasonably believe these Terms or the Acceptable Use Policy have been violated.
 
+**Live Connect.** If you start a Live Connect conversation you are responsible for inviting only adults who are willing to take part, for telling them if you keep a transcript, and for having a lawful basis to do so. Do not use it to record or monitor people without their knowledge. Businesses that place a Live Connect desk are responsible for informing their visitors and for their own legal basis; the business is the controller of the conversations held at its desk and we act as its processor.
+
 ## 7. Privacy
 
 Our Privacy Policy explains what data we process and why. By using the Service you acknowledge that audio is processed in real time to provide transcription and translation, as described there.
