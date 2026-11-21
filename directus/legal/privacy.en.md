@@ -11,6 +11,7 @@ The Service is operated by **Alessandro Micelli**, Puerto del Rosario, Spain ("V
 - **Browser-tab audio (Chrome extension, transient)** — our Chrome extension captures the audio playing in a tab **you** choose, rather than only your microphone, so you can follow a video, webinar, or call hosted on another site. Capture runs only while a session is active and only on the tab you selected. That audio is transcribed and translated as it streams and returned to you as live subtitles; it is not recorded, and an extension session stores nothing on our servers. Your extension settings stay in your browser.
 - **Voice sample (optional)** — on the Enhanced tier you may record a short clip so your translated speech can be spoken in a voice resembling your own. The clip is sent to our voice provider, which creates the synthetic voice and returns an identifier that we store on your account. The feature is optional and can be used without it.
 - **Transcripts & translations** — the text of speech and chat together with its translations. When a signed-in user takes part in a call, these are **stored** so participants can review, export (PDF/JSON), and AI-correct the transcript afterwards. Calls in which no signed-in user took part are not stored. Stored transcripts are deleted when you delete your account — your utterances are removed with it.
+- **Live Connect (conversations on separate phones)** — up to four people, each on their own phone, can talk in different languages; guests join with a link or QR code and **no account**. For each person we process the live audio of their phone (never recorded), the display name they type, their chosen language and the time they acknowledged our notice. On the **Enhanced** level each phone streams its audio directly to our voice provider, as described above. The host may choose to have translations spoken in a synthetic voice resembling their own, for that conversation only; the identifier of that voice is then sent to the guests' phones so they can play it, and guests are told so.
 - **Chat messages & files** — chat is relayed and translated between participants. Files you attach are stored privately and shared with the call's participants through short-lived links.
 - **Usage, analytics & billing data** — credit balance, transactions, per-session speaking time, and product-usage events (which features and plan tier you use, and for how long) used to meter, bill, secure, and improve the Service. Analytics are aggregated for reporting.
 - **Safety data** — abuse reports you submit or that are submitted about you (which may include a short transcript excerpt), and moderation/ban records.
@@ -27,6 +28,7 @@ Video and audio between participants are sent peer-to-peer (WebRTC) and are not 
 - Product analytics to understand and improve the Service — legitimate interests.
 - Safety, moderation and handling abuse reports — legitimate interests in a safe service; legal obligation.
 - Keeping legally required transaction records — legal obligation.
+- Live Connect — translate a conversation for everyone taking part, including guests without an account — contract with the host, and our legitimate interests in letting the people in the conversation understand each other, together with the acknowledgement guests give before their microphone opens. Speaking with an imitation of the host's voice — the host's explicit consent, given for each conversation.
 
 Transcription and translation are automated (AI-based) and may be inaccurate; AI outputs are generated solely to provide the Service and are not used to train third-party models.
 
@@ -52,13 +54,13 @@ We share personal data with the providers below strictly to operate the Service.
 
 - **Audio:** processed in real time and not stored.
 - **Voice sample (if you use voice cloning):** the synthetic voice is held by our voice provider and its identifier is stored on your account until you delete your account.
-- **Voice sample (if you use voice cloning):** the synthetic voice is held by our voice provider and its identifier is stored on your account until you delete your account.
 - **Transcripts & translations:** for calls with a signed-in participant, kept until you delete the call or your account; calls with only guests are not stored.
 - **Account data:** kept while your account exists; deleted when you delete your account.
 - **Chat file attachments:** kept while the related call/account exists and served through short-lived private links.
 - **Billing/transaction records:** retained as required by applicable tax and accounting laws.
 - **Safety/abuse reports and ban records:** retained for as long as needed to keep the Service safe and to comply with legal obligations.
 - **Operational logs:** retained for a limited period for security and reliability.
+- **Live Connect conversations:** audio is never stored. A text transcript is kept only if the person who started the conversation switched on saving, or, for a business desk, under that business's retention settings (90 days by default), until it is deleted or that period ends. A guest can ask us to erase their part of a conversation by writing to the privacy contact above with their name, the date and time and the link they used.
 
 ## 6. Cookies and local storage
 
@@ -88,7 +90,7 @@ We use industry-standard measures to protect personal data, including encryption
 
 ## 9. Children
 
-The Service is for adults (18+). We do not knowingly process data of children. If you believe a child has provided us data, contact us and we will delete it.
+The Service is for adults (18+). We do not knowingly process data of children. If you believe a child has provided us data, contact us and we will delete it. Guests of Live Connect must be adults too; whoever invites a guest is responsible for who they invite.
 
 ## 10. Google user data (Calendar) and Limited Use
 

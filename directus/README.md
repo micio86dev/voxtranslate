@@ -518,3 +518,17 @@ Admin (require `X-Admin-Secret`): `POST /api/admin/{ban,unban,credit,bonus,repor
 `POST /api/admin/live/{desk-revoke,desk-regenerate,session-end,session-reconcile,session-transcript}` (Live Connect, §11),
 `POST /api/admin/org/gift-subscription` (gift a B2B org a Business/Enterprise month + credits).
 User location (require session JWT): `POST /api/user/location` (opt-in store), `DELETE /api/user/location` (withdraw).
+
+### Seeding the operators
+
+`setup-live-connect.mjs` creates the two roles but no people. `seed-live-connect-operators.mjs` creates them
+(idempotent, one role per person, never both, never moves someone off an unrelated role):
+
+```sh
+DIRECTUS_URL=https://<directus> DIRECTUS_TOKEN=<static admin token> \
+  node directus/seed-live-connect-operators.mjs \
+    --support support@example.com --privacy privacy@example.com   # add --dry-run to preview
+```
+
+No password is set: Directus can only send an invitation when mail is configured (`EMAIL_*`), so an
+administrator sets the password from the user's page. Until then the account cannot sign in.

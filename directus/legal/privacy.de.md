@@ -11,6 +11,7 @@ Der Dienst wird betrieben von **Alessandro Micelli**, Puerto del Rosario, Spain 
 - **Browser-Tab-Audio (Chrome-Erweiterung, flüchtig)** — unsere Chrome-Erweiterung erfasst den Ton, der in einem von **Ihnen** gewählten Tab läuft, und nicht nur Ihr Mikrofon, damit Sie einem Video, Webinar oder Call auf einer anderen Website folgen können. Die Erfassung läuft nur während einer aktiven Sitzung und ausschließlich im ausgewählten Tab. Dieses Audio wird im Stream transkribiert und übersetzt und Ihnen als Live-Untertitel zurückgegeben; es wird nicht aufgezeichnet, und eine Sitzung der Erweiterung speichert nichts auf unseren Servern. Ihre Einstellungen der Erweiterung bleiben in Ihrem Browser.
 - **Stimmprobe (optional)** — im Tarif Enhanced können Sie einen kurzen Clip aufnehmen, damit Ihre übersetzte Sprache in einer Ihrer eigenen ähnlichen Stimme gesprochen wird. Der Clip wird an unseren Sprachanbieter gesendet, der die synthetische Stimme erzeugt und eine Kennung zurückgibt, die wir in Ihrem Konto speichern. Die Funktion ist optional; der Tarif ist auch ohne sie nutzbar.
 - **Transkripte und Übersetzungen** — der Text von Sprache und Chat zusammen mit seinen Übersetzungen. Wenn ein angemeldeter Nutzer an einem Anruf teilnimmt, werden diese **gespeichert**, damit die Teilnehmer das Transkript anschließend durchsehen, exportieren (PDF/JSON) und per KI korrigieren können. Anrufe, an denen kein angemeldeter Nutzer teilgenommen hat, werden nicht gespeichert. Gespeicherte Transkripte werden gelöscht, wenn Sie Ihr Konto löschen — Ihre Äußerungen werden damit entfernt.
+- **Live Connect (Gespräche auf getrennten Telefonen)** — bis zu vier Personen, jede auf ihrem eigenen Telefon, können in verschiedenen Sprachen sprechen; Gäste treten über einen Link oder QR-Code bei, **ohne Konto**. Pro Person verarbeiten wir das Live-Audio ihres Telefons (nie aufgezeichnet), den eingegebenen Anzeigenamen, die gewählte Sprache und den Zeitpunkt, zu dem sie unseren Hinweis zur Kenntnis genommen hat. Auf der Stufe **Enhanced** sendet jedes Telefon sein Audio direkt an unseren Sprachanbieter, wie oben beschrieben. Der Gastgeber kann wählen, dass Übersetzungen nur für dieses Gespräch mit einer synthetischen, seiner eigenen ähnlichen Stimme gesprochen werden; die Kennung dieser Stimme wird dann an die Telefone der Gäste gesendet, damit sie sie abspielen können, und die Gäste werden darüber informiert.
 - **Chat-Nachrichten und Dateien** — der Chat wird zwischen den Teilnehmern weitergeleitet und übersetzt. Von Ihnen angehängte Dateien werden privat gespeichert und über kurzlebige Links mit den Teilnehmern des Anrufs geteilt.
 - **Nutzungs-, Analyse- und Abrechnungsdaten** — Guthabenstand, Transaktionen, Sprechzeit pro Sitzung und Produktnutzungsereignisse (welche Funktionen und welche Tarifstufe Sie nutzen und wie lange), die zur Messung, Abrechnung, Absicherung und Verbesserung des Dienstes verwendet werden. Analysedaten werden für die Berichterstattung aggregiert.
 - **Sicherheitsdaten** — Missbrauchsmeldungen, die Sie einreichen oder die über Sie eingereicht werden (ggf. mit einem kurzen Transkriptauszug), sowie Moderations-/Sperrdatensätze.
@@ -27,6 +28,7 @@ Video und Audio zwischen den Teilnehmern werden Peer-to-Peer (WebRTC) übertrage
 - Produktanalyse zum Verständnis und zur Verbesserung des Dienstes — berechtigte Interessen.
 - Sicherheit, Moderation und Bearbeitung von Missbrauchsmeldungen — berechtigte Interessen an einem sicheren Dienst; rechtliche Verpflichtung.
 - Aufbewahrung gesetzlich vorgeschriebener Transaktionsaufzeichnungen — rechtliche Verpflichtung.
+- Live Connect — ein Gespräch für alle Teilnehmenden übersetzen, auch für Gäste ohne Konto — Vertrag mit dem Gastgeber und unser berechtigtes Interesse, dass sich die Gesprächspartner verstehen, zusammen mit der Kenntnisnahme, die Gäste bestätigen, bevor ihr Mikrofon geöffnet wird. Sprechen mit einer Nachahmung der Stimme des Gastgebers — ausdrückliche Einwilligung des Gastgebers, für jedes Gespräch einzeln erteilt.
 
 Transkription und Übersetzung erfolgen automatisiert (KI-basiert) und können fehlerhaft sein; KI-Ausgaben werden ausschließlich zur Bereitstellung des Dienstes erzeugt und nicht zum Training von Drittanbietermodellen verwendet.
 
@@ -58,6 +60,7 @@ Wir geben personenbezogene Daten ausschließlich zum Betrieb des Dienstes an die
 - **Abrechnungs-/Transaktionsaufzeichnungen:** aufbewahrt, soweit die geltenden Steuer- und Buchführungsgesetze dies verlangen.
 - **Sicherheits-/Missbrauchsmeldungen und Sperrdatensätze:** aufbewahrt, solange dies erforderlich ist, um den Dienst sicher zu halten und rechtliche Verpflichtungen zu erfüllen.
 - **Betriebsprotokolle:** für einen begrenzten Zeitraum zur Sicherheit und Zuverlässigkeit aufbewahrt.
+- **Live-Connect-Gespräche:** Audio wird nie gespeichert. Ein Texttranskript wird nur aufbewahrt, wenn die Person, die das Gespräch gestartet hat, das Speichern aktiviert hat, oder bei einem Unternehmensschalter gemäß den Aufbewahrungseinstellungen des Unternehmens (standardmäßig 90 Tage), bis es gelöscht wird oder die Frist endet. Ein Gast kann die Löschung seines Anteils an einem Gespräch verlangen, indem er an den oben genannten Datenschutzkontakt schreibt und seinen Namen, Datum und Uhrzeit sowie den verwendeten Link angibt.
 
 ## 6. Cookies und lokaler Speicher
 
@@ -87,7 +90,7 @@ Wir setzen branchenübliche Maßnahmen zum Schutz personenbezogener Daten ein, e
 
 ## 9. Kinder
 
-Der Dienst ist für Erwachsene (18+) bestimmt. Wir verarbeiten wissentlich keine Daten von Kindern. Wenn Sie glauben, dass ein Kind uns Daten übermittelt hat, kontaktieren Sie uns, und wir werden sie löschen.
+Der Dienst ist für Erwachsene (18+) bestimmt. Wir verarbeiten wissentlich keine Daten von Kindern. Wenn Sie glauben, dass ein Kind uns Daten übermittelt hat, kontaktieren Sie uns, und wir werden sie löschen. Auch Gäste von Live Connect müssen volljährig sein; wer einen Gast einlädt, ist dafür verantwortlich, wen er einlädt.
 
 ## 10. Google-Nutzerdaten (Kalender) und eingeschränkte Verwendung
 

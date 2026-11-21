@@ -28,6 +28,8 @@ O seu uso do Serviço está sujeito à nossa Política de Uso Aceitável, que fa
 
 Você é o único responsável pelo áudio, vídeo e texto que transmite. Para manter o Serviço seguro, aplicamos filtragem automática de conteúdo à fala transcrita e ao chat, e disponibilizamos ferramentas para denunciar e bloquear participantes. Podemos suspender ou encerrar contas, remover conteúdo ou restringir o acesso quando acreditarmos razoavelmente que estes Termos ou a Política de Uso Aceitável foram violados.
 
+**Live Connect.** Se iniciar uma conversa Live Connect, é responsável por convidar apenas adultos dispostos a participar, por os informar se guardar uma transcrição e por ter uma base legal para isso. Não o utilize para gravar ou vigiar pessoas sem o seu conhecimento. As empresas que instalam um balcão Live Connect são responsáveis por informar os seus visitantes e pela sua própria base legal: a empresa é a responsável pelo tratamento das conversas no seu balcão e nós atuamos como seu subcontratante.
+
 ## 7. Privacidade
 
 A nossa Política de Privacidade explica que dados tratamos e porquê. Ao usar o Serviço, você reconhece que o áudio é processado em tempo real para fornecer transcrição e tradução, conforme aí descrito.

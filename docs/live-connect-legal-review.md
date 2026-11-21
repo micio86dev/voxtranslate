@@ -40,10 +40,10 @@ smaller and visible, not to remove it. Jurisdiction assumed: **Spain / EU** (con
 
 ## 4. Gaps, ordered by risk
 
-**G1 — Privacy policy does not describe Live Connect (high; text change, no code).** The published policy (`directus/legal/privacy.*.md`) covers calls and webinars. It
+**G1 — Privacy policy does not describe Live Connect — DONE 2026-11-21 (published).** The published policy (`directus/legal/privacy.*.md`) covers calls and webinars. It
 should add: guests without an account; that the audio of Live Connect is never recorded; desk conversations and the organisation as controller; default 90-day retention for
 organisation conversations and opt-in transcripts for personal ones; the Enhanced tier sending audio **directly from the phone to Cartesia**; how a guest asks for erasure
-(see G8). Draft insert in §6.
+(see G8). Published in all 8 languages (privacy §2, §3, §5, §9 and a Live Connect clause in the Terms §6; legal version 2026-11-21); the source is `directus/legal/*.md`. Same publication also released earlier repo edits that production was missing (voice-cloning disclosure and processors).
 
 **G2 — Voice clone and guests (high).** Done: per-conversation opt-in, explicit consent sentence, guest disclosure line, no clone for guests. Remaining: (a) the guest voice line
 appears **in the room**, i.e. after the guest has accepted the join notice but before the host speaks; moving it into the join notice (the join response already carries the flag) is
