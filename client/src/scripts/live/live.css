@@ -305,6 +305,8 @@
 .lc-credits[data-low='true'] { color: var(--warning); }
 
 .lc-settings { display: flex; flex-direction: column; gap: 0.8rem; }
+.lc-distance-tip { margin: 0; }
+.lc-distance-tip[hidden] { display: none; }
 .lc-output select { width: 100%; min-height: var(--tap-target); }
 .lc-controls {
   position: sticky; bottom: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;
@@ -313,7 +315,16 @@
 .lc-ctl { min-height: var(--tap-target); width: 100%; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; }
 /* --danger (#ef4444) under white text is 3.8:1, below WCAG AA for text; this red is 6.5:1. */
 .lc-end { background: #b91c1c; }
-.lc-confirm { display: flex; flex-direction: column; gap: 0.8rem; text-align: center; }
+/* The end confirmation: fixed over the whole screen, centred, above the sticky control bar. The
+   safe-area padding keeps it clear of the iPhone notch and home indicator. */
+.lc-confirm-overlay {
+  position: fixed; inset: 0; z-index: 50; display: grid; place-items: center;
+  padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+    max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+  background: rgba(0, 0, 0, 0.6);
+}
+.lc-confirm-overlay[hidden] { display: none; }
+.lc-confirm { display: flex; flex-direction: column; gap: 0.8rem; text-align: center; width: 100%; max-width: 360px; }
 .lc-confirm-text { margin: 0; }
 .lc-confirm-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
 

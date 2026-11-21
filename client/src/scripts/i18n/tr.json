@@ -921,6 +921,7 @@
   "liveEndConfirm": "Sohbet ikiniz için de bitirilsin mi?",
   "liveHeadphones": "Kulaklık kullanıyorum",
   "liveHeadphonesHint": "Çeviri sürerken konuşabilmeniz için yankı korumasını kapatır. Yalnızca kulaklıkla kullanın.",
+  "liveDistanceTip": "İpucu: her mikrofon yalnızca kendi sesini alsın diye telefonları birbirinden yaklaşık bir metre uzakta tutun veya kulaklık kullanın.",
   "liveOutput": "Ses çıkışı",
   "liveOutputDefault": "Varsayılan",
   "liveOutputFailed": "Ses çıkışı değiştirilemedi.",

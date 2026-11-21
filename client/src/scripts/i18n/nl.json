@@ -921,6 +921,7 @@
   "liveEndConfirm": "Het gesprek voor jullie allebei beëindigen?",
   "liveHeadphones": "Ik gebruik een hoofdtelefoon",
   "liveHeadphonesHint": "Schakelt de echobeveiliging uit, zodat je door de vertaling heen kunt praten. Gebruik dit alleen met een hoofdtelefoon.",
+  "liveDistanceTip": "Tip: houd de telefoons ongeveer een meter van elkaar of gebruik een koptelefoon, zodat elke microfoon alleen zijn eigen stem opvangt.",
   "liveOutput": "Audio-uitvoer",
   "liveOutputDefault": "Standaard",
   "liveOutputFailed": "Kon de audio-uitvoer niet wisselen.",

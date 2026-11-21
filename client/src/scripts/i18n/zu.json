@@ -921,6 +921,7 @@
   "liveEndConfirm": "Qeda ingxoxo kini nobabili?",
   "liveHeadphones": "Ngisebenzisa ama-headphone",
   "liveHeadphonesHint": "Kuvala isivikelo se-echo ukuze ukwazi ukukhuluma phezu kokuhumusha. Kusebenzise kuphela nama-headphone.",
+  "liveDistanceTip": "Ithiphu: gcina amafoni ahlukaniswe ngamamitha angaba yimeta eyodwa, noma sebenzisa ama-headphone, ukuze imakrofoni ngayinye ithole izwi layo kuphela.",
   "liveOutput": "Okuphumayo komsindo",
   "liveOutputDefault": "Okuzenzakalelayo",
   "liveOutputFailed": "Ayikwazanga ukushintsha okuphumayo komsindo.",

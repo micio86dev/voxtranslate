@@ -921,6 +921,7 @@
   "liveEndConfirm": "An gcríochnóidh tú an comhrá daoibh beirt?",
   "liveHeadphones": "Táim ag úsáid cluasán",
   "liveHeadphonesHint": "Casann sé seo an garda macalla as ionas gur féidir leat labhairt thar an aistriúchán. Ná húsáid é ach le cluasáin.",
+  "liveDistanceTip": "Leid: coinnigh na fóin thart ar mhéadar óna chéile, nó bain úsáid as cluasáin, ionas nach nglacfaidh gach micreafón ach lena ghuth féin.",
   "liveOutput": "Aschur fuaime",
   "liveOutputDefault": "Réamhshocrú",
   "liveOutputFailed": "Níorbh fhéidir an t-aschur fuaime a athrú.",

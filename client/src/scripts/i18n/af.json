@@ -921,6 +921,7 @@
   "liveEndConfirm": "Beëindig die gesprek vir albei van julle?",
   "liveHeadphones": "Ek gebruik oorfone",
   "liveHeadphonesHint": "Skakel die eggobeskerming af sodat jy oor die vertaling kan praat. Gebruik dit net met oorfone.",
+  "liveDistanceTip": "Wenk: hou die foons ongeveer 'n meter van mekaar af, of gebruik oorfone, sodat elke mikrofoon net sy eie stem optel.",
   "liveOutput": "Klankuitvoer",
   "liveOutputDefault": "Verstek",
   "liveOutputFailed": "Kon nie die klankuitvoer verander nie.",

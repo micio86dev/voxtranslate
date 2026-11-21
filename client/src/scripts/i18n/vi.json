@@ -921,6 +921,7 @@
   "liveEndConfirm": "Kết thúc cuộc trò chuyện cho cả hai người?",
   "liveHeadphones": "Tôi đang dùng tai nghe",
   "liveHeadphonesHint": "Tắt chế độ chống vọng để bạn có thể nói chen vào lúc đang dịch. Chỉ dùng khi đeo tai nghe.",
+  "liveDistanceTip": "Mẹo: hãy để hai điện thoại cách nhau khoảng một mét, hoặc dùng tai nghe, để mỗi micrô chỉ thu giọng nói của chính nó.",
   "liveOutput": "Đầu ra âm thanh",
   "liveOutputDefault": "Mặc định",
   "liveOutputFailed": "Không thể chuyển đầu ra âm thanh.",

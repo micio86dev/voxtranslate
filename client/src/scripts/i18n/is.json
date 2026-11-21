@@ -921,6 +921,7 @@
   "liveEndConfirm": "Ljúka samtalinu fyrir ykkur bæði?",
   "liveHeadphones": "Ég nota heyrnartól",
   "liveHeadphonesHint": "Slekkur á bergmálsvörninni svo þú getir talað ofan í þýðinguna. Notaðu aðeins með heyrnartólum.",
+  "liveDistanceTip": "Ábending: hafðu símana í um það bil metra fjarlægð hvorn frá öðrum, eða notaðu heyrnartól, svo að hver hljóðnemi nemi aðeins sína eigin rödd.",
   "liveOutput": "Hljóðúttak",
   "liveOutputDefault": "Sjálfgefið",
   "liveOutputFailed": "Ekki tókst að skipta um hljóðúttak.",

@@ -921,6 +921,7 @@
   "liveEndConfirm": "Elkarrizketa amaitu nahi duzu bientzat?",
   "liveHeadphones": "Aurikularrak erabiltzen ari naiz",
   "liveHeadphonesHint": "Oihartzunaren babesa desaktibatzen du, itzulpenaren gainean hitz egin ahal izateko. Erabili aurikularrekin bakarrik.",
+  "liveDistanceTip": "Aholkua: eduki telefonoak metro bat inguruko distantziara, edo erabili aurikularrak, mikrofono bakoitzak bere ahotsa bakarrik jaso dezan.",
   "liveOutput": "Audio-irteera",
   "liveOutputDefault": "Lehenetsia",
   "liveOutputFailed": "Ezin izan da audio-irteera aldatu.",

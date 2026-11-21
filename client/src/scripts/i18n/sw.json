@@ -921,6 +921,7 @@
   "liveEndConfirm": "Kumaliza mazungumzo kwa nyote wawili?",
   "liveHeadphones": "Natumia vipokea sauti vya masikioni",
   "liveHeadphonesHint": "Huzima kinga ya mwangwi ili uweze kuongea wakati tafsiri inachezwa. Tumia tu na vipokea sauti vya masikioni.",
+  "liveDistanceTip": "Kidokezo: weka simu umbali wa takriban mita moja kutoka kwa nyingine, au tumia vipokea sauti vya masikioni, ili kila kipaza sauti kichukue sauti yake yenyewe tu.",
   "liveOutput": "Pato la sauti",
   "liveOutputDefault": "Chaguo-msingi",
   "liveOutputFailed": "Imeshindwa kubadilisha pato la sauti.",

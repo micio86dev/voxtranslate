@@ -921,6 +921,7 @@
   "liveEndConfirm": "Tamatkan perbualan untuk kedua-dua anda?",
   "liveHeadphones": "Saya menggunakan fon kepala",
   "liveHeadphonesHint": "Mematikan perlindungan gema supaya anda boleh bercakap semasa terjemahan dimainkan. Gunakan hanya dengan fon kepala.",
+  "liveDistanceTip": "Petua: letakkan telefon kira-kira satu meter antara satu sama lain, atau gunakan fon kepala, supaya setiap mikrofon hanya menangkap suaranya sendiri.",
   "liveOutput": "Output audio",
   "liveOutputDefault": "Lalai",
   "liveOutputFailed": "Tidak dapat menukar output audio.",

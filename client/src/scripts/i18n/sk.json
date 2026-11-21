@@ -921,6 +921,7 @@
   "liveEndConfirm": "Ukončiť rozhovor pre vás oboch?",
   "liveHeadphones": "Používam slúchadlá",
   "liveHeadphonesHint": "Vypne ochranu proti ozvene, aby ste mohli hovoriť cez preklad. Používajte len so slúchadlami.",
+  "liveDistanceTip": "Tip: držte telefóny zhruba meter od seba alebo použite slúchadlá, aby každý mikrofón zachytával iba svoj vlastný hlas.",
   "liveOutput": "Zvukový výstup",
   "liveOutputDefault": "Predvolený",
   "liveOutputFailed": "Zvukový výstup sa nepodarilo prepnúť.",

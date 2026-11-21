@@ -921,6 +921,7 @@
   "liveEndConfirm": "Baigti pokalbį abiem?",
   "liveHeadphones": "Naudoju ausines",
   "liveHeadphonesHint": "Išjungia aido apsaugą, kad galėtumėte kalbėti virš vertimo. Naudokite tik su ausinėmis.",
+  "liveDistanceTip": "Patarimas: laikykite telefonus maždaug metro atstumu vienas nuo kito arba naudokite ausines, kad kiekvienas mikrofonas girdėtų tik savo balsą.",
   "liveOutput": "Garso išvestis",
   "liveOutputDefault": "Numatytoji",
   "liveOutputFailed": "Nepavyko perjungti garso išvesties.",

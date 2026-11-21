@@ -921,6 +921,7 @@
   "liveEndConfirm": "두 분 모두의 대화를 종료할까요?",
   "liveHeadphones": "헤드폰을 사용 중입니다",
   "liveHeadphonesHint": "에코 방지를 꺼서 번역 음성 위에 말할 수 있습니다. 헤드폰을 사용할 때만 켜세요.",
+  "liveDistanceTip": "팁: 각 마이크가 자기 목소리만 인식하도록 휴대폰을 1미터 정도 떨어뜨려 두거나 헤드폰을 사용하세요.",
   "liveOutput": "오디오 출력",
   "liveOutputDefault": "기본값",
   "liveOutputFailed": "오디오 출력을 전환할 수 없습니다.",

@@ -921,6 +921,7 @@
   "liveEndConfirm": "要为你们双方结束对话吗？",
   "liveHeadphones": "我正在使用耳机",
   "liveHeadphonesHint": "关闭回声防护，这样你可以在翻译播放时说话。仅在使用耳机时开启。",
+  "liveDistanceTip": "提示：请让两部手机相距约一米，或使用耳机，这样每个麦克风只会收到自己的声音。",
   "liveOutput": "音频输出",
   "liveOutputDefault": "默认",
   "liveOutputFailed": "无法切换音频输出。",

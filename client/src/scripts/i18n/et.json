@@ -921,6 +921,7 @@
   "liveEndConfirm": "Kas lõpetada vestlus teie mõlema jaoks?",
   "liveHeadphones": "Kasutan kõrvaklappe",
   "liveHeadphonesHint": "Lülitab kaja kaitse välja, et saaksid tõlke ajal rääkida. Kasuta ainult kõrvaklappidega.",
+  "liveDistanceTip": "Näpunäide: hoidke telefonid umbes meetri kaugusel või kasutage kõrvaklappe, et iga mikrofon kuuleks ainult oma häält.",
   "liveOutput": "Heli väljund",
   "liveOutputDefault": "Vaikimisi",
   "liveOutputFailed": "Heli väljundit ei õnnestunud vahetada.",

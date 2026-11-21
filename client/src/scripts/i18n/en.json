@@ -925,6 +925,7 @@
   "liveEndConfirm": "End the conversation for both of you?",
   "liveHeadphones": "I'm using headphones",
   "liveHeadphonesHint": "Turns off the echo guard so you can talk over the translation. Use it only with headphones.",
+  "liveDistanceTip": "Tip: keep the phones about a metre apart, or use headphones, so each microphone only picks up its own voice.",
   "liveOutput": "Audio output",
   "liveOutputDefault": "Default",
   "liveOutputFailed": "Couldn't switch the audio output.",
