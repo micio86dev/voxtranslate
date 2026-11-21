@@ -211,8 +211,10 @@ export function outputSelectionSupported(
 }
 
 /** Microphone constraints, resolved at call time so the noisy-environment toggle applies to the next conversation. */
-function micConstraints(): MediaStreamConstraints {
-  return { audio: buildAudioConstraints(), video: false };
+function micConstraints(enhanced: boolean): MediaStreamConstraints {
+  // Enhanced tells whose mouth a sentence came from by comparing the phones' microphone levels, so
+  // its microphone must not be levelled: AGC would lift a far-away voice to a near one's level.
+  return { audio: buildAudioConstraints(enhanced ? { autoGainControl: false } : {}), video: false };
 }
 
 /** Normalised primary language subtag, for "are these the same language". */
@@ -360,7 +362,7 @@ export class LiveConversation {
       this.opts.getMedia ?? ((c: MediaStreamConstraints) => navigator.mediaDevices.getUserMedia(c));
     let raw: MediaStream;
     try {
-      raw = await getMedia(micConstraints());
+      raw = await getMedia(micConstraints(this.isEnhanced()));
     } catch (err) {
       this.finish({ type: 'MIC_DENIED', kind: classifyMediaError(err) as FailureKind });
       return;

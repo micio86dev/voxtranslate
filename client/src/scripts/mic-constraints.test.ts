@@ -45,6 +45,16 @@ describe('buildAudioConstraints', () => {
     }
   });
 
+  it('turns automatic gain off only when asked, and still never touches echo cancellation', () => {
+    // Live Connect Enhanced compares two phones' microphone LEVELS to tell whose mouth a sentence
+    // came from. AGC would lift a far-away voice to the same level as a near one.
+    const c = buildAudioConstraints({ autoGainControl: false });
+    expect(c.autoGainControl).toBe(false);
+    expect(c.echoCancellation).toBe(true);
+    expect(buildAudioConstraints({ autoGainControl: true }).autoGainControl).toBe(true);
+    expect(buildAudioConstraints({}).autoGainControl).toBe(true);
+  });
+
   it('pins a chosen device exactly, and omits the key when none is chosen', () => {
     expect(buildAudioConstraints({ deviceId: 'mic-1' }).deviceId).toEqual({ exact: 'mic-1' });
     expect('deviceId' in buildAudioConstraints({})).toBe(false);

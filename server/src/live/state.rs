@@ -57,6 +57,9 @@ pub struct SessionLatency {
 
 /// A microphone level nobody refreshed for this long is silence, not "the last thing it heard".
 const MIC_LEVEL_FRESH: Duration = Duration::from_secs(3);
+/// How recently another seat's microphone must have carried speech for its level to count as "that
+/// phone is being talked into right now" (see [`SessionLatency::level_echo`]).
+const LEVEL_ECHO_VOICED: Duration = Duration::from_millis(1500);
 /// The echo filter writes at most one diagnostics event per conversation in this interval.
 const ECHO_REPORT_EVERY: Duration = Duration::from_secs(10);
 
@@ -208,6 +211,33 @@ impl SessionLatency {
     pub fn mic_last_voiced(&self, seat: usize) -> Option<tokio::time::Instant> {
         let stamp = self.mic_voiced_at[seat % MAX_SEATS].load(Ordering::Relaxed);
         (stamp != 0).then(|| self.epoch + Duration::from_nanos(stamp - 1))
+    }
+
+    /// Whether the text `seat` just sent is only the voice of ANOTHER seat reaching this phone's
+    /// microphone, judged by loudness alone (Enhanced: no audio reaches the server, so the words
+    /// are an unreliable witness, a foreign-language ear garbles them beyond recognition).
+    ///
+    /// True when some other seat's microphone carried speech within [`LEVEL_ECHO_VOICED`] and its
+    /// smoothed level is more than `ratio` times this seat's own: the speaker is whoever is next to
+    /// their microphone. Two people talking over each other are each next to their own, so neither
+    /// is louder than the other by that much and both pass (full duplex). A level of 0 is
+    /// "unknown" (an older client sends none, or the seat is silent), and an unknown level never
+    /// suppresses. A `ratio` under 1 switches the rule off.
+    pub fn level_echo(&self, seat: usize, now: tokio::time::Instant, ratio: f64) -> bool {
+        if !ratio.is_finite() || ratio < 1.0 {
+            return false;
+        }
+        let me = seat % MAX_SEATS;
+        let mine = f64::from(self.mic_level(me, now));
+        if mine == 0.0 {
+            return false;
+        }
+        (0..MAX_SEATS).filter(|o| *o != me).any(|o| {
+            let spoke = self
+                .mic_last_voiced(o)
+                .is_some_and(|t| now.saturating_duration_since(t) <= LEVEL_ECHO_VOICED);
+            spoke && f64::from(self.mic_level(o, now)) > mine * ratio
+        })
     }
 
     /// Whether the echo filter may write a diagnostics event now. At most one per conversation per
@@ -968,5 +998,75 @@ mod tests {
             !state.maintenance_due_at(t0 + hour + Duration::from_secs(1), hour),
             "and the new stamp restarts the clock"
         );
+    }
+
+    // ---- level echo (Enhanced: the other phone's mouth, by loudness alone) ----
+
+    /// Feed `seat` a stretch of speech at `level`, one 100 ms frame at a time, ending at `end_ms`.
+    fn speak(l: &SessionLatency, seat: usize, level: u32, from_ms: u64, end_ms: u64) {
+        let t0 = l.epoch;
+        let mut t = from_ms;
+        while t <= end_ms {
+            l.mic_frame(seat, at(t0, t), level, level >= 80);
+            t += 100;
+        }
+    }
+
+    #[test]
+    fn a_text_frame_from_the_quieter_phone_while_the_other_is_speaking_is_an_echo() {
+        let l = SessionLatency::new_for_test();
+        let t0 = l.epoch;
+        speak(&l, 0, 2000, 0, 800); // I am talking, close to my microphone
+        speak(&l, 1, 300, 400, 800); // her microphone hears me from afar
+        assert!(l.level_echo(1, at(t0, 800), 2.0), "she only heard me");
+        assert!(!l.level_echo(0, at(t0, 800), 2.0), "never the louder one");
+    }
+
+    #[test]
+    fn two_people_talking_over_each_other_are_both_real() {
+        let l = SessionLatency::new_for_test();
+        let t0 = l.epoch;
+        // Full duplex: each mouth is next to its own microphone.
+        speak(&l, 0, 2000, 0, 800);
+        speak(&l, 1, 1800, 0, 800);
+        assert!(!l.level_echo(0, at(t0, 800), 2.0));
+        assert!(!l.level_echo(1, at(t0, 800), 2.0));
+    }
+
+    #[test]
+    fn an_unknown_level_never_suppresses() {
+        let l = SessionLatency::new_for_test();
+        let t0 = l.epoch;
+        speak(&l, 0, 2000, 0, 800);
+        // An older client sends no level: seat 1 reads as 0, which is "unknown".
+        assert!(!l.level_echo(1, at(t0, 800), 2.0));
+        // And the other way: nobody else has reported a level.
+        let l = SessionLatency::new_for_test();
+        speak(&l, 1, 300, 0, 800);
+        assert!(!l.level_echo(1, at(l.epoch, 800), 2.0));
+    }
+
+    #[test]
+    fn a_reply_after_the_other_phone_went_quiet_is_real() {
+        let l = SessionLatency::new_for_test();
+        let t0 = l.epoch;
+        speak(&l, 0, 2000, 0, 500);
+        // 2 s later her microphone carries her own, quieter, reply: the other seat's level is
+        // still "fresh" (under 3 s) but it has not been voiced for longer than the window.
+        speak(&l, 1, 300, 2400, 2600);
+        assert!(!l.level_echo(1, at(t0, 2600), 2.0));
+    }
+
+    #[test]
+    fn the_ratio_is_a_knob_and_zero_switches_the_rule_off() {
+        let l = SessionLatency::new_for_test();
+        let t0 = l.epoch;
+        speak(&l, 0, 2000, 0, 800);
+        speak(&l, 1, 1200, 400, 800);
+        // 2000 vs 1200 is not twice as loud...
+        assert!(!l.level_echo(1, at(t0, 800), 2.0));
+        // ...but is 1.25 times as loud.
+        assert!(l.level_echo(1, at(t0, 800), 1.25));
+        assert!(!l.level_echo(1, at(t0, 800), 0.0), "0 = off");
     }
 }

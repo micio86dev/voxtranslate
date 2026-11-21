@@ -70,6 +70,12 @@ export interface MicChoice {
   deviceId?: string;
   /** Noisy-environment mode. Defaults to the stored preference when omitted. */
   noisyEnv?: boolean;
+  /**
+   * Automatic gain. On by default. Live Connect Enhanced turns it off: it compares two phones'
+   * microphone levels to tell whose mouth a sentence came from, and AGC would lift a far-away
+   * voice to the level of a near one.
+   */
+  autoGainControl?: boolean;
 }
 
 /**
@@ -85,7 +91,7 @@ export function buildAudioConstraints(choice: MicChoice = {}): MediaTrackConstra
   return {
     channelCount: 1,
     echoCancellation: true,
-    autoGainControl: true,
+    autoGainControl: choice.autoGainControl ?? true,
     // The swap, not a stack — see the module header.
     noiseSuppression: !noisyEnv,
     ...(deviceId ? { deviceId: { exact: deviceId } } : {}),

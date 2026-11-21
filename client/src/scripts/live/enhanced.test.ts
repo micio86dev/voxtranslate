@@ -14,6 +14,7 @@ import {
   TTS_FAILURE_LIMIT,
   UTTERANCE_TIMEOUT_MS,
   chunkText,
+  meanAbsPcm16,
   classifyTokenError,
   type EnhancedDeps,
   type EnhancedFailure,
@@ -227,6 +228,61 @@ describe('token and start', () => {
     h.engine.setGated(false);
     h.graphs[0].onChunk(new ArrayBuffer(4));
     expect(ws.sent).toHaveLength(1);
+  });
+});
+
+describe('microphone level on translate_text', () => {
+  const chunk = (amp: number, n = 1600): ArrayBuffer => new Int16Array(n).fill(amp).buffer;
+  const say = (h: Awaited<ReturnType<typeof listening>>, text: string, is_final = false) =>
+    h.stt()[0].say({ type: 'transcript', text, is_final });
+
+  it('measures a chunk as its mean absolute sample, sign ignored', () => {
+    expect(meanAbsPcm16(chunk(1000))).toBe(1000);
+    expect(meanAbsPcm16(chunk(-1000))).toBe(1000);
+    expect(meanAbsPcm16(new ArrayBuffer(0))).toBe(0);
+    const mixed = new Int16Array([1000, -3000]).buffer;
+    expect(meanAbsPcm16(mixed)).toBe(2000);
+    expect(meanAbsPcm16(new Int16Array([-32768]).buffer)).toBe(32768);
+  });
+
+  it('tells the server how loud I was while I said it, as a whole number', async () => {
+    const h = await listening();
+    for (let i = 0; i < 5; i++) h.graphs[0].onChunk(chunk(1200));
+    say(h, 'Buongiorno a tutti', true);
+    await tick(900);
+    const last = frames(h).at(-1) as { level?: unknown };
+    expect(Number.isInteger(last.level)).toBe(true);
+    expect(last.level as number).toBeGreaterThanOrEqual(1100);
+    expect(last.level as number).toBeLessThanOrEqual(1200);
+  });
+
+  it('lets a loud moment fade over a second or so rather than vanish between two chunks', async () => {
+    const h = await listening();
+    for (let i = 0; i < 3; i++) h.graphs[0].onChunk(chunk(2000));
+    for (let i = 0; i < 3; i++) h.graphs[0].onChunk(chunk(0));
+    say(h, 'Buongiorno a tutti', true);
+    await tick(900);
+    const level = (frames(h).at(-1) as { level: number }).level;
+    expect(level).toBeGreaterThan(1000);
+    expect(level).toBeLessThan(2000);
+  });
+
+  it('still measures while the echo guard holds the microphone back', async () => {
+    const h = await listening();
+    h.engine.setGated(true);
+    h.graphs[0].onChunk(chunk(900));
+    h.engine.setGated(false);
+    h.graphs[0].onChunk(chunk(900));
+    say(h, 'Buongiorno a tutti', true);
+    await tick(900);
+    expect((frames(h).at(-1) as { level: number }).level).toBeGreaterThanOrEqual(800);
+  });
+
+  it('sends zero before any audio has been measured', async () => {
+    const h = await listening();
+    say(h, 'Buongiorno a tutti', true);
+    await tick(900);
+    expect((frames(h).at(-1) as { level: number }).level).toBe(0);
   });
 });
 
