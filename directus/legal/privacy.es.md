@@ -11,6 +11,7 @@ El Servicio es operado por **Alessandro Micelli**, Puerto del Rosario, Spain ("V
 - **Audio de la pestaña del navegador (extensión de Chrome, transitorio)** — nuestra extensión de Chrome captura el audio que se reproduce en una pestaña que **tú** eliges, y no solo tu micrófono, para que puedas seguir un vídeo, un seminario web o una llamada alojados en otro sitio. La captura solo se activa mientras hay una sesión en curso y únicamente en la pestaña que seleccionaste. Ese audio se transcribe y se traduce sobre la marcha y se te devuelve como subtítulos en directo; no se graba, y una sesión de la extensión no almacena nada en nuestros servidores. Los ajustes de la extensión permanecen en tu navegador.
 - **Muestra de voz (opcional)** — en el tier Enhanced puedes grabar un clip breve para que tu voz traducida suene con un timbre parecido al tuyo. El clip se envía a nuestro proveedor de voz, que crea la voz sintética y devuelve un identificador que almacenamos en tu cuenta. Es opcional y el tier puede usarse sin ello.
 - **Transcripciones y traducciones** — el texto del habla y del chat junto con sus traducciones. Cuando un usuario con sesión iniciada participa en una llamada, estos se **almacenan** para que los participantes puedan revisar, exportar (PDF/JSON) y corregir con IA la transcripción posteriormente. Las llamadas en las que no participó ningún usuario con sesión iniciada no se almacenan. Las transcripciones almacenadas se eliminan cuando eliminas tu cuenta: tus intervenciones se borran con ella.
+- **Live Connect (conversaciones en teléfonos separados)** — hasta cuatro personas, cada una en su propio teléfono, pueden hablar en idiomas distintos; los invitados entran con un enlace o un código QR y **sin cuenta**. De cada persona tratamos el audio en directo de su teléfono (nunca se graba), el nombre que escribe, el idioma elegido y la hora en que leyó nuestro aviso. En el nivel **Enhanced** cada teléfono envía su audio directamente a nuestro proveedor de voz, como se describe arriba. El anfitrión puede elegir que las traducciones se digan con una voz sintética parecida a la suya, solo para esa conversación; el identificador de esa voz se envía entonces a los teléfonos de los invitados para que la reproduzcan, y los invitados son informados de ello.
 - **Mensajes de chat y archivos** — el chat se transmite y traduce entre los participantes. Los archivos que adjuntas se almacenan de forma privada y se comparten con los participantes de la llamada mediante enlaces de corta duración.
 - **Datos de uso, analítica y facturación** — saldo de créditos, transacciones, tiempo de conversación por sesión y eventos de uso del producto (qué funciones y nivel de plan usas, y durante cuánto tiempo) utilizados para medir, facturar, proteger y mejorar el Servicio. La analítica se agrega con fines de elaboración de informes.
 - **Datos de seguridad** — denuncias de abuso que envías o que se presentan sobre ti (que pueden incluir un breve extracto de la transcripción) y los registros de moderación/bloqueo.
@@ -27,6 +28,7 @@ El vídeo y el audio entre participantes viajan de igual a igual (WebRTC) y no p
 - Analítica del producto para entender y mejorar el Servicio — interés legítimo.
 - Seguridad, moderación y gestión de denuncias de abuso — interés legítimo en un servicio seguro; obligación legal.
 - Conservar los registros de transacciones exigidos por ley — obligación legal.
+- Live Connect — traducir una conversación para todos los participantes, incluidos los invitados sin cuenta — contrato con el anfitrión e interés legítimo nuestro en que las personas de la conversación se entiendan, junto con la confirmación que dan los invitados antes de que se abra su micrófono. Hablar con una imitación de la voz del anfitrión — consentimiento explícito del anfitrión, dado para cada conversación.
 
 La transcripción y la traducción son automatizadas (basadas en IA) y pueden ser inexactas; los resultados de la IA se generan únicamente para prestar el Servicio y no se utilizan para entrenar modelos de terceros.
 
@@ -58,6 +60,7 @@ Compartimos datos personales con los proveedores indicados a continuación estri
 - **Registros de facturación/transacciones:** conservados según exijan las leyes fiscales y contables aplicables.
 - **Denuncias de abuso/seguridad y registros de bloqueo:** conservados el tiempo necesario para mantener el Servicio seguro y cumplir obligaciones legales.
 - **Registros operativos:** conservados durante un período limitado por seguridad y fiabilidad.
+- **Conversaciones de Live Connect:** el audio nunca se almacena. Una transcripción de texto solo se conserva si quien inició la conversación activó el guardado o, en un mostrador de empresa, según los ajustes de conservación de esa empresa (90 días por defecto), hasta que se elimine o termine ese plazo. Un invitado puede pedirnos que borremos su parte de una conversación escribiendo al contacto de privacidad indicado arriba con su nombre, la fecha y hora y el enlace que usó.
 
 ## 6. Cookies y almacenamiento local
 
@@ -87,7 +90,7 @@ Usamos medidas estándar del sector para proteger los datos personales, incluido
 
 ## 9. Menores
 
-El Servicio es para adultos (18+). No tratamos conscientemente datos de menores. Si crees que un menor nos ha facilitado datos, contáctanos y los eliminaremos.
+El Servicio es para adultos (18+). No tratamos conscientemente datos de menores. Si crees que un menor nos ha facilitado datos, contáctanos y los eliminaremos. Los invitados de Live Connect también deben ser adultos; quien invita a un invitado es responsable de a quién invita.
 
 ## 10. Datos de usuario de Google (Calendario) y uso limitado
 

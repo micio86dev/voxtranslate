@@ -28,6 +28,8 @@ Ihre Nutzung des Dienstes unterliegt unserer Richtlinie zur akzeptablen Nutzung,
 
 Sie sind allein verantwortlich für die Audio-, Video- und Textinhalte, die Sie übertragen. Um den Dienst sicher zu halten, wenden wir eine automatisierte Inhaltsfilterung auf transkribierte Sprache und den Chat an und stellen Werkzeuge bereit, um Teilnehmer zu melden und zu blockieren. Wir können Konten sperren oder kündigen, Inhalte entfernen oder den Zugang einschränken, wenn wir vernünftigerweise davon ausgehen, dass diese Bedingungen oder die Richtlinie zur akzeptablen Nutzung verletzt wurden.
 
+**Live Connect.** Wenn Sie ein Live-Connect-Gespräch starten, sind Sie dafür verantwortlich, nur Erwachsene einzuladen, die teilnehmen möchten, sie zu informieren, wenn Sie ein Transkript speichern, und dafür eine Rechtsgrundlage zu haben. Nutzen Sie es nicht, um Personen ohne deren Wissen aufzuzeichnen oder zu überwachen. Unternehmen, die einen Live-Connect-Schalter aufstellen, sind dafür verantwortlich, ihre Besucher zu informieren und eine eigene Rechtsgrundlage zu haben: Das Unternehmen ist Verantwortlicher für die an seinem Schalter geführten Gespräche, wir handeln als sein Auftragsverarbeiter.
+
 ## 7. Datenschutz
 
 Unsere Datenschutzerklärung erläutert, welche Daten wir verarbeiten und warum. Mit der Nutzung des Dienstes erkennen Sie an, dass Audio in Echtzeit verarbeitet wird, um Transkription und Übersetzung bereitzustellen, wie dort beschrieben.
