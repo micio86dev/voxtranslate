@@ -921,6 +921,7 @@
   "liveEndConfirm": "A kawo ƙarshen tattaunawar ga ku biyu?",
   "liveHeadphones": "Ina amfani da belun kunne",
   "liveHeadphonesHint": "Yana kashe kariyar amo don ka iya magana a kan fassarar. Yi amfani da shi da belun kunne kawai.",
+  "liveDistanceTip": "Shawara: ku ajiye wayoyin kusan mita ɗaya tsakaninsu, ko ku yi amfani da na'urar kunne, domin kowane makirufo ya ɗauki muryarsa kawai.",
   "liveOutput": "Fitar da sauti",
   "liveOutputDefault": "Na asali",
   "liveOutputFailed": "Ba a iya canza fitar da sauti ba.",

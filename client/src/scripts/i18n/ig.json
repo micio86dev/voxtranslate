@@ -921,6 +921,7 @@
   "liveEndConfirm": "Kwụsị mkparịta ụka maka unu abụọ?",
   "liveHeadphones": "Ana m eji headphones",
   "liveHeadphonesHint": "Na-emechi nche mmegharị ụda ka ị nwee ike ikwu okwu n'elu nsụgharị ahụ. Jiri ya naanị na headphones.",
+  "liveDistanceTip": "Ndụmọdụ: debe ekwentị ahụ ihe dị ka otu mita n'etiti ha, ma ọ bụ jiri headphone, ka igwe okwu nke ọ bụla were naanị olu nke ya.",
   "liveOutput": "Mmepụta ụda",
   "liveOutputDefault": "Nke ndabara",
   "liveOutputFailed": "Enweghị ike ịgbanwe mmepụta ụda.",

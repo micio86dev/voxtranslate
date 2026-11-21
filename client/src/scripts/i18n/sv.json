@@ -921,6 +921,7 @@
   "liveEndConfirm": "Avsluta samtalet för er båda?",
   "liveHeadphones": "Jag använder hörlurar",
   "liveHeadphonesHint": "Stänger av ekoskyddet så att du kan tala över översättningen. Använd det bara med hörlurar.",
+  "liveDistanceTip": "Tips: håll telefonerna ungefär en meter från varandra eller använd hörlurar, så att varje mikrofon bara fångar upp sin egen röst.",
   "liveOutput": "Ljudutgång",
   "liveOutputDefault": "Standard",
   "liveOutputFailed": "Det gick inte att byta ljudutgång.",

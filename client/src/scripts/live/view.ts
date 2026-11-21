@@ -89,6 +89,8 @@ export interface RoomEls {
   /** Host only. */
   credits: HTMLElement | null;
   headphones: HTMLInputElement;
+  /** Advice to keep the phones apart; not needed (so hidden) once headphones are on. */
+  distanceTip: HTMLElement;
   outputField: HTMLElement;
   output: HTMLSelectElement;
   mute: HTMLButtonElement;
@@ -265,6 +267,11 @@ export function buildRoom(doc: Doc, opts: { role: Role; maxGuests?: number }): R
   const headText = el(doc, 'span');
   headText.append(i18n(doc, 'span', '', 'liveHeadphones'), i18n(doc, 'small', 'lc-hint', 'liveHeadphonesHint'));
   headLabel.append(headphones, headText);
+  // Two phones side by side hear each other's speaker: a little distance keeps every microphone on
+  // its own voice. Headphones remove the problem, so room.ts hides this while they are on.
+  const distanceTip = i18n(doc, 'p', 'lc-hint lc-distance-tip', 'liveDistanceTip');
+  distanceTip.id = 'lc-distance-tip';
+  distanceTip.setAttribute('role', 'note');
 
   const outputField = el(doc, 'label', 'field lc-output');
   outputField.id = 'lc-output-field';
@@ -272,7 +279,7 @@ export function buildRoom(doc: Doc, opts: { role: Role; maxGuests?: number }): R
   const output = el(doc, 'select');
   output.id = 'lc-output';
   outputField.append(i18n(doc, 'span', 'field-label', 'liveOutput'), output);
-  settings.append(headLabel, outputField);
+  settings.append(headLabel, distanceTip, outputField);
 
   const controls = el(doc, 'div', 'lc-controls');
   const mute = button(doc, 'lc-mute', 'btn-ghost lc-ctl', 'talkMute');
@@ -285,18 +292,24 @@ export function buildRoom(doc: Doc, opts: { role: Role; maxGuests?: number }): R
   const end = button(doc, 'lc-end', 'btn-primary lc-ctl lc-end', endKeys.button);
   controls.append(mute, end);
 
-  const confirm = el(doc, 'div', 'card lc-confirm');
+  // A modal over the whole page, like the confirmations in the rest of the app. The control bar is
+  // sticky at the bottom of the screen, so a card that followed it in the page flow opened below the
+  // fold on a phone and nobody saw it. The wrapper is the backdrop; a tap on it cancels (room.ts).
+  const confirm = el(doc, 'div', 'lc-confirm-overlay');
   confirm.id = 'lc-confirm';
-  confirm.setAttribute('role', 'alertdialog');
-  confirm.setAttribute('aria-labelledby', 'lc-confirm-text');
   confirm.hidden = true;
+  const confirmCard = el(doc, 'div', 'card lc-confirm');
+  confirmCard.setAttribute('role', 'alertdialog');
+  confirmCard.setAttribute('aria-modal', 'true');
+  confirmCard.setAttribute('aria-labelledby', 'lc-confirm-text');
   const confirmText = i18n(doc, 'p', 'lc-confirm-text', endKeys.confirm);
   confirmText.id = 'lc-confirm-text';
   const confirmBtns = el(doc, 'div', 'lc-confirm-btns');
   const endNo = button(doc, 'lc-end-no', 'btn-ghost lc-ctl', 'cancel');
   const endYes = button(doc, 'lc-end-yes', 'btn-primary lc-ctl lc-end', endKeys.yes);
   confirmBtns.append(endNo, endYes);
-  confirm.append(confirmText, confirmBtns);
+  confirmCard.append(confirmText, confirmBtns);
+  confirm.append(confirmCard);
 
   // AI Act art. 50: whoever hears a translation or a translated voice is told it is AI-generated.
   // Static and on screen from the first paint, for the host, the guests and the desk staff alike.
@@ -360,7 +373,7 @@ export function buildRoom(doc: Doc, opts: { role: Role; maxGuests?: number }): R
   root.append(live, ended, problem);
   return {
     root, live, status, statusText, tier, tierNotice, tierNoticeText, tierNoticeClose, partners, dirOut, dirIn, sameLang, announce, stage, mine, mineText, speaking, voiceNote,
-    notice, historyTitle, history, credits, headphones, outputField, output, mute, muteLabel, end,
+    notice, historyTitle, history, credits, headphones, distanceTip, outputField, output, mute, muteLabel, end,
     confirm, confirmText, endYes, endNo, ended,
     endedText, endedAction, problem, problemText, retry, buy, home,
   };

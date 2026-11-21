@@ -921,6 +921,7 @@
   "liveEndConfirm": "Gespréich fir iech allebéid ofschléissen?",
   "liveHeadphones": "Ech benotzen Kopfhörer",
   "liveHeadphonesHint": "Schalt de Echoschutz aus, sou datt du iwwer d'Iwwersetzung driwwer schwätze kanns. Benotz et nëmme mat Kopfhörer.",
+  "liveDistanceTip": "Tipp: Haalt d'Telefonen ongeféier e Meter ausernee, oder benotzt Kopfhörer, sou datt all Mikro just seng eege Stëmm opfänkt.",
   "liveOutput": "Audioausgang",
   "liveOutputDefault": "Standard",
   "liveOutputFailed": "Den Audioausgang konnt net gewiesselt ginn.",

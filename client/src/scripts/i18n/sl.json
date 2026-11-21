@@ -921,6 +921,7 @@
   "liveEndConfirm": "Končati pogovor za oba?",
   "liveHeadphones": "Uporabljam slušalke",
   "liveHeadphonesHint": "Izklopi zaščito pred odmevom, tako da lahko govorite čez prevod. Uporabite samo s slušalkami.",
+  "liveDistanceTip": "Nasvet: telefona naj bosta približno meter narazen ali uporabite slušalke, da vsak mikrofon zazna samo svoj glas.",
   "liveOutput": "Zvočni izhod",
   "liveOutputDefault": "Privzeto",
   "liveOutputFailed": "Zvočnega izhoda ni bilo mogoče zamenjati.",

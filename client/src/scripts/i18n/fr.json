@@ -921,6 +921,7 @@
   "liveEndConfirm": "Terminer la conversation pour vous deux ?",
   "liveHeadphones": "J'utilise un casque",
   "liveHeadphonesHint": "Désactive l'anti-écho pour que vous puissiez parler par-dessus la traduction. À utiliser uniquement avec un casque.",
+  "liveDistanceTip": "Astuce : gardez les téléphones à environ un mètre l'un de l'autre, ou utilisez un casque, pour que chaque micro ne capte que sa propre voix.",
   "liveOutput": "Sortie audio",
   "liveOutputDefault": "Par défaut",
   "liveOutputFailed": "Impossible de changer la sortie audio.",

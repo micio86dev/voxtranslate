@@ -223,12 +223,19 @@ export function mountRoom(opts: RoomOptions): RoomHandle {
       onMuteChange: paintMute,
     });
 
+  // Headphones keep the translation out of the microphone, so the distance advice is only for the
+  // phones-in-the-room case.
+  const paintDistanceTip = (): void => {
+    els.distanceTip.hidden = els.headphones.checked;
+  };
+
   const begin = (): void => {
     // Show the wallet from the first second instead of after the first charge.
     const cached = role === 'host' ? getUser()?.balance : undefined;
     if (typeof cached === 'number') paintCredits(cached, false);
     convo = build();
     els.headphones.checked = convo.headphones();
+    paintDistanceTip();
     paintMute(false);
     void convo.start();
   };
@@ -238,15 +245,47 @@ export function mountRoom(opts: RoomOptions): RoomHandle {
     els.confirm.hidden = false;
     els.endYes.focus();
   });
-  els.endNo.addEventListener('click', () => {
+  const cancelEnd = (): void => {
     els.confirm.hidden = true;
     els.end.focus();
+  };
+  els.endNo.addEventListener('click', cancelEnd);
+  // A tap on the dark backdrop (the overlay itself, not the dialog inside it) cancels.
+  els.confirm.addEventListener('click', (ev) => {
+    if (ev.target === els.confirm) cancelEnd();
   });
+  // While the modal is open: Escape cancels, and Tab cycles between its two buttons instead of
+  // walking off to the page behind it.
+  const onConfirmKey = (ev: KeyboardEvent): void => {
+    if (els.confirm.hidden) return;
+    if (ev.key === 'Escape') {
+      ev.preventDefault();
+      cancelEnd();
+      return;
+    }
+    if (ev.key !== 'Tab') return;
+    const [first, last] = [els.endNo, els.endYes];
+    const active = els.root.ownerDocument.activeElement;
+    if (ev.shiftKey && active === first) {
+      ev.preventDefault();
+      last.focus();
+    } else if (!ev.shiftKey && active === last) {
+      ev.preventDefault();
+      first.focus();
+    } else if (active !== first && active !== last) {
+      ev.preventDefault();
+      first.focus();
+    }
+  };
+  document.addEventListener('keydown', onConfirmKey);
   els.endYes.addEventListener('click', () => {
     els.confirm.hidden = true;
     convo.end();
   });
-  els.headphones.addEventListener('change', () => convo.setHeadphones(els.headphones.checked));
+  els.headphones.addEventListener('change', () => {
+    convo.setHeadphones(els.headphones.checked);
+    paintDistanceTip();
+  });
   els.output.addEventListener('change', () => {
     void convo.setOutputDevice(els.output.value).then((ok) => {
       if (!ok) toast(t('liveOutputFailed'), 'err');
@@ -271,6 +310,7 @@ export function mountRoom(opts: RoomOptions): RoomHandle {
     destroy(): void {
       destroyed = true;
       window.removeEventListener('pagehide', onPageHide);
+      document.removeEventListener('keydown', onConfirmKey);
       convo.release();
       els.root.remove();
     },

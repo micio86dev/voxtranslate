@@ -921,6 +921,7 @@
   "liveEndConfirm": "要為你哋兩個結束對話嗎？",
   "liveHeadphones": "我用緊耳機",
   "liveHeadphonesHint": "關閉回音防護，等你可以喺翻譯播放嗰陣講嘢。只限配戴耳機時使用。",
+  "liveDistanceTip": "提示：請將兩部手機相隔大約一米，或者戴耳機，咁樣每個咪高峰就只會收到自己把聲。",
   "liveOutput": "音訊輸出",
   "liveOutputDefault": "預設",
   "liveOutputFailed": "切換唔到音訊輸出。",

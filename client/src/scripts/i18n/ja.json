@@ -921,6 +921,7 @@
   "liveEndConfirm": "お二人の会話を終了しますか？",
   "liveHeadphones": "ヘッドホンを使用中",
   "liveHeadphonesHint": "エコーガードをオフにして、翻訳中にも話せるようにします。ヘッドホン使用時のみご利用ください。",
+  "liveDistanceTip": "ヒント：各マイクが自分の声だけを拾うように、スマートフォンを1メートルほど離すか、ヘッドホンを使ってください。",
   "liveOutput": "音声出力",
   "liveOutputDefault": "デフォルト",
   "liveOutputFailed": "音声出力を切り替えられませんでした。",

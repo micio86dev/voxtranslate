@@ -921,6 +921,7 @@
   "liveEndConfirm": "Avslutte samtalen for begge to?",
   "liveHeadphones": "Eg brukar hovudtelefonar",
   "liveHeadphonesHint": "Slår av ekkovernet slik at du kan snakke oppå omsetjinga. Bruk berre dette med hovudtelefonar.",
+  "liveDistanceTip": "Tips: hald telefonane om lag ein meter frå kvarandre, eller bruk hovudtelefonar, slik at kvar mikrofon berre fangar opp si eiga stemme.",
   "liveOutput": "Lydutgang",
   "liveOutputDefault": "Standard",
   "liveOutputFailed": "Klarte ikkje byte lydutgang.",

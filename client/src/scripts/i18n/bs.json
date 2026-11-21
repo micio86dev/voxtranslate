@@ -921,6 +921,7 @@
   "liveEndConfirm": "Završiti razgovor za oboje?",
   "liveHeadphones": "Koristim slušalice",
   "liveHeadphonesHint": "Isključuje zaštitu od jeke da biste mogli govoriti preko prijevoda. Koristite samo sa slušalicama.",
+  "liveDistanceTip": "Savjet: držite telefone na udaljenosti od otprilike metar ili koristite slušalice, kako bi svaki mikrofon hvatao samo svoj glas.",
   "liveOutput": "Izlaz zvuka",
   "liveOutputDefault": "Zadano",
   "liveOutputFailed": "Nije moguće promijeniti izlaz zvuka.",

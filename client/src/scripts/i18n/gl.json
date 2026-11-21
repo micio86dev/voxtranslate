@@ -921,6 +921,7 @@
   "liveEndConfirm": "Rematar a conversa para os dous?",
   "liveHeadphones": "Estou a usar auriculares",
   "liveHeadphonesHint": "Desactiva a protección contra o eco para que poidas falar sobre a tradución. Úsao só con auriculares.",
+  "liveDistanceTip": "Consello: mantén os teléfonos a un metro de distancia aproximadamente, ou usa auriculares, para que cada micrófono capte só a súa propia voz.",
   "liveOutput": "Saída de audio",
   "liveOutputDefault": "Predeterminada",
   "liveOutputFailed": "Non se puido cambiar a saída de audio.",

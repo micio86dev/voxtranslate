@@ -921,6 +921,7 @@
   "liveEndConfirm": "Befejezi a beszélgetést mindkettőjük számára?",
   "liveHeadphones": "Fejhallgatót használok",
   "liveHeadphonesHint": "Kikapcsolja a visszhangvédelmet, így a fordítás közben is beszélhet. Csak fejhallgatóval használja.",
+  "liveDistanceTip": "Tipp: tartsa a telefonokat körülbelül egy méterre egymástól, vagy használjon fejhallgatót, hogy minden mikrofon csak a saját hangját fogja fel.",
   "liveOutput": "Hangkimenet",
   "liveOutputDefault": "Alapértelmezett",
   "liveOutputFailed": "A hangkimenetet nem sikerült átváltani.",

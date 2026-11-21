@@ -921,6 +921,7 @@
   "liveEndConfirm": "Söhbət ikiniz üçün də bitirilsin?",
   "liveHeadphones": "Qulaqlıq istifadə edirəm",
   "liveHeadphonesHint": "Əks-səda qorumasını söndürür ki, tərcümənin üstündən danışa biləsiniz. Yalnız qulaqlıqla istifadə edin.",
+  "liveDistanceTip": "Məsləhət: telefonları təxminən bir metr aralı saxlayın və ya qulaqlıq istifadə edin ki, hər mikrofon yalnız öz səsini qəbul etsin.",
   "liveOutput": "Səs çıxışı",
   "liveOutputDefault": "Defolt",
   "liveOutputFailed": "Səs çıxışını dəyişmək alınmadı.",

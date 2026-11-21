@@ -921,6 +921,7 @@
   "liveEndConfirm": "Encerrar a conversa para vocês dois?",
   "liveHeadphones": "Estou usando fones de ouvido",
   "liveHeadphonesHint": "Desativa a proteção contra eco para você poder falar durante a tradução. Use apenas com fones de ouvido.",
+  "liveDistanceTip": "Dica: mantenha os celulares a cerca de um metro de distância ou use fones de ouvido, para que cada microfone capte apenas a própria voz.",
   "liveOutput": "Saída de áudio",
   "liveOutputDefault": "Padrão",
   "liveOutputFailed": "Não foi possível trocar a saída de áudio.",

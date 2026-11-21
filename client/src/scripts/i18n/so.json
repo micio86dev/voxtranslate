@@ -921,6 +921,7 @@
   "liveEndConfirm": "Ma dhammeeyaa wada hadalka labadiinaba?",
   "liveHeadphones": "Waxaan isticmaalayaa headphones",
   "liveHeadphonesHint": "Wuxuu damiyaa ilaalada dhawaaqa, si aad ugu hadli karto tarjumaadda inta ay socoto. Isticmaal kaliya markaad headphones xiran tahay.",
+  "liveDistanceTip": "Talo: telefoonnada ku hay qiyaastii hal mitir ka fog midba midka kale, ama isticmaal dhegaysi, si mikrofoon kasta uu u qaado codkiisa oo keliya.",
   "liveOutput": "Soo-saarka codka",
   "liveOutputDefault": "Caadi",
   "liveOutputFailed": "Lama beddeli karin soo-saarka codka.",

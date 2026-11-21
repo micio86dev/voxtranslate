@@ -921,6 +921,7 @@
   "liveEndConfirm": "Vols finalitzar la conversa per als dos?",
   "liveHeadphones": "Faig servir auriculars",
   "liveHeadphonesHint": "Desactiva la protecció contra l'eco perquè puguis parlar mentre sona la traducció. Fes-ho servir només amb auriculars.",
+  "liveDistanceTip": "Consell: mantingueu els telèfons a un metre de distància aproximadament, o feu servir auriculars, perquè cada micròfon només capti la seva pròpia veu.",
   "liveOutput": "Sortida d'àudio",
   "liveOutputDefault": "Per defecte",
   "liveOutputFailed": "No s'ha pogut canviar la sortida d'àudio.",
