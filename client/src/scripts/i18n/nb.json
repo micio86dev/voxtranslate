@@ -921,6 +921,7 @@
   "liveEndConfirm": "Avslutte samtalen for begge?",
   "liveHeadphones": "Jeg bruker hodetelefoner",
   "liveHeadphonesHint": "Slår av ekkobeskyttelsen slik at du kan snakke over oversettelsen. Bruk den bare med hodetelefoner.",
+  "liveDistanceTip": "Tips: hold telefonene omtrent en meter fra hverandre, eller bruk hodetelefoner, slik at hver mikrofon bare fanger opp sin egen stemme.",
   "liveOutput": "Lydutgang",
   "liveOutputDefault": "Standard",
   "liveOutputFailed": "Kunne ikke bytte lydutgang.",

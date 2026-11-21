@@ -190,6 +190,14 @@ describe('renderPhase', () => {
     expect(els.retry.hidden).toBe(false);
   });
 
+  it('has a distance tip next to the headphones setting, translatable and visible at first', () => {
+    const tip = els.root.querySelector('#lc-distance-tip') as HTMLElement;
+    expect(tip).not.toBeNull();
+    expect(tip.dataset.i18n).toBe('liveDistanceTip');
+    expect(tip.hidden).toBe(false);
+    expect(els.headphones.closest('.lc-settings')?.contains(tip)).toBe(true);
+  });
+
   it('shows the end confirmation as a centred modal, not as a card at the bottom of the page', () => {
     // On a phone the sticky control bar sits at the bottom of the screen: a card that follows it in
     // the page flow opens below the fold and nobody sees it. The overlay is fixed over everything.

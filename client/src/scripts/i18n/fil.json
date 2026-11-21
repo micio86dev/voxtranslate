@@ -921,6 +921,7 @@
   "liveEndConfirm": "Tapusin ang usapan para sa inyong dalawa?",
   "liveHeadphones": "Gumagamit ako ng headphones",
   "liveHeadphonesHint": "Pinapatay nito ang echo guard para makapagsalita ka habang may pagsasalin. Gamitin lang ito kapag may headphones.",
+  "liveDistanceTip": "Tip: ilayo ang mga telepono nang humigit-kumulang isang metro sa isa't isa, o gumamit ng headphones, para ang bawat mikropono ay makakuha lang ng sarili nitong boses.",
   "liveOutput": "Audio output",
   "liveOutputDefault": "Default",
   "liveOutputFailed": "Hindi napalitan ang audio output.",

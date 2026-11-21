@@ -223,12 +223,19 @@ export function mountRoom(opts: RoomOptions): RoomHandle {
       onMuteChange: paintMute,
     });
 
+  // Headphones keep the translation out of the microphone, so the distance advice is only for the
+  // phones-in-the-room case.
+  const paintDistanceTip = (): void => {
+    els.distanceTip.hidden = els.headphones.checked;
+  };
+
   const begin = (): void => {
     // Show the wallet from the first second instead of after the first charge.
     const cached = role === 'host' ? getUser()?.balance : undefined;
     if (typeof cached === 'number') paintCredits(cached, false);
     convo = build();
     els.headphones.checked = convo.headphones();
+    paintDistanceTip();
     paintMute(false);
     void convo.start();
   };
@@ -275,7 +282,10 @@ export function mountRoom(opts: RoomOptions): RoomHandle {
     els.confirm.hidden = true;
     convo.end();
   });
-  els.headphones.addEventListener('change', () => convo.setHeadphones(els.headphones.checked));
+  els.headphones.addEventListener('change', () => {
+    convo.setHeadphones(els.headphones.checked);
+    paintDistanceTip();
+  });
   els.output.addEventListener('change', () => {
     void convo.setOutputDevice(els.output.value).then((ok) => {
       if (!ok) toast(t('liveOutputFailed'), 'err');

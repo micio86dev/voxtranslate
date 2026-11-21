@@ -921,6 +921,7 @@
   "liveEndConfirm": "Suhbat ikkalangiz uchun tugatilsinmi?",
   "liveHeadphones": "Quloqchin ishlatyapman",
   "liveHeadphonesHint": "Aks-sado himoyasini o'chiradi, shunda tarjima ustidan gapira olasiz. Faqat quloqchin bilan foydalaning.",
+  "liveDistanceTip": "Maslahat: telefonlarni bir-biridan taxminan bir metr uzoqlikda tuting yoki quloqchin ishlating, shunda har bir mikrofon faqat o‘z ovozini oladi.",
   "liveOutput": "Audio chiqish",
   "liveOutputDefault": "Standart",
   "liveOutputFailed": "Audio chiqishni almashtirib bo'lmadi.",

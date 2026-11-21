@@ -921,6 +921,7 @@
   "liveEndConfirm": "Zakończyć rozmowę dla was obojga?",
   "liveHeadphones": "Używam słuchawek",
   "liveHeadphonesHint": "Wyłącza ochronę przed echem, aby można było mówić podczas tłumaczenia. Używaj tylko ze słuchawkami.",
+  "liveDistanceTip": "Wskazówka: trzymaj telefony w odległości około metra od siebie lub używaj słuchawek, aby każdy mikrofon odbierał tylko własny głos.",
   "liveOutput": "Wyjście audio",
   "liveOutputDefault": "Domyślne",
   "liveOutputFailed": "Nie udało się zmienić wyjścia audio.",

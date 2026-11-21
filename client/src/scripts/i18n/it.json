@@ -921,6 +921,7 @@
   "liveEndConfirm": "Terminare la conversazione per entrambi?",
   "liveHeadphones": "Sto usando le cuffie",
   "liveHeadphonesHint": "Disattiva la protezione dall'eco, così puoi parlare sopra la traduzione. Usala solo con le cuffie.",
+  "liveDistanceTip": "Consiglio: tieni i telefoni a circa un metro di distanza, oppure usa le cuffie, così ogni microfono capta solo la propria voce.",
   "liveOutput": "Uscita audio",
   "liveOutputDefault": "Predefinita",
   "liveOutputFailed": "Impossibile cambiare l'uscita audio.",

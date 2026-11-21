@@ -921,6 +921,7 @@
   "liveEndConfirm": "Tittemm il-konversazzjoni għalikom it-tnejn?",
   "liveHeadphones": "Qed nuża headphones",
   "liveHeadphonesHint": "Itfi l-protezzjoni mill-eku biex tkun tista' titkellem fuq it-traduzzjoni. Uża biss mal-headphones.",
+  "liveDistanceTip": "Pariri: żomm it-telefowns madwar metru 'l bogħod minn xulxin, jew uża headphones, biex kull mikrofonu jaqbad biss il-vuċi tiegħu stess.",
   "liveOutput": "Ħruġ tal-awdjo",
   "liveOutputDefault": "Default",
   "liveOutputFailed": "Ma setgħetx tinbidel il-ħruġ tal-awdjo.",

@@ -921,6 +921,7 @@
   "liveEndConfirm": "Încheiați conversația pentru amândoi?",
   "liveHeadphones": "Folosesc căști",
   "liveHeadphonesHint": "Dezactivează protecția anti-ecou, ca să puteți vorbi peste traducere. Folosiți-o doar cu căști.",
+  "liveDistanceTip": "Sfat: ține telefoanele la aproximativ un metru unul de celălalt sau folosește căști, astfel încât fiecare microfon să capteze doar propria voce.",
   "liveOutput": "Ieșire audio",
   "liveOutputDefault": "Implicit",
   "liveOutputFailed": "Nu s-a putut schimba ieșirea audio.",

@@ -921,6 +921,7 @@
   "liveEndConfirm": "Të përfundojë biseda për të dy?",
   "liveHeadphones": "Po përdor kufje",
   "liveHeadphonesHint": "Çaktivizon mbrojtjen nga jehona që të mund të flisni mbi përkthimin. Përdoreni vetëm me kufje.",
+  "liveDistanceTip": "Këshillë: mbajini telefonat rreth një metër larg njëri-tjetrit ose përdorni kufje, që çdo mikrofon të marrë vetëm zërin e vet.",
   "liveOutput": "Dalja e zërit",
   "liveOutputDefault": "Parazgjedhja",
   "liveOutputFailed": "Dalja e zërit nuk u ndryshua dot.",

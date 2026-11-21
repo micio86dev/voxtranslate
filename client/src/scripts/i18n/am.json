@@ -921,6 +921,7 @@
   "liveEndConfirm": "ውይይቱ ለሁለታችሁም ይጠናቀቅ?",
   "liveHeadphones": "የጆሮ ማዳመጫ እየተጠቀምኩ ነው",
   "liveHeadphonesHint": "ከትርጉሙ ላይ መናገር እንዲችሉ የማሚቶ መከላከያውን ያጠፋል። ከጆሮ ማዳመጫ ጋር ብቻ ይጠቀሙ።",
+  "liveDistanceTip": "ጠቃሚ ምክር፦ እያንዳንዱ ማይክሮፎን የራሱን ድምፅ ብቻ እንዲቀበል ስልኮቹን በአንድ ሜትር ያህል አራርቁ ወይም የጆሮ ማዳመጫ ይጠቀሙ።",
   "liveOutput": "የድምጽ ውጤት",
   "liveOutputDefault": "ነባሪ",
   "liveOutputFailed": "የድምጽ ውጤቱን መቀየር አልተቻለም።",

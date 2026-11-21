@@ -89,6 +89,8 @@ export interface RoomEls {
   /** Host only. */
   credits: HTMLElement | null;
   headphones: HTMLInputElement;
+  /** Advice to keep the phones apart; not needed (so hidden) once headphones are on. */
+  distanceTip: HTMLElement;
   outputField: HTMLElement;
   output: HTMLSelectElement;
   mute: HTMLButtonElement;
@@ -265,6 +267,11 @@ export function buildRoom(doc: Doc, opts: { role: Role; maxGuests?: number }): R
   const headText = el(doc, 'span');
   headText.append(i18n(doc, 'span', '', 'liveHeadphones'), i18n(doc, 'small', 'lc-hint', 'liveHeadphonesHint'));
   headLabel.append(headphones, headText);
+  // Two phones side by side hear each other's speaker: a little distance keeps every microphone on
+  // its own voice. Headphones remove the problem, so room.ts hides this while they are on.
+  const distanceTip = i18n(doc, 'p', 'lc-hint lc-distance-tip', 'liveDistanceTip');
+  distanceTip.id = 'lc-distance-tip';
+  distanceTip.setAttribute('role', 'note');
 
   const outputField = el(doc, 'label', 'field lc-output');
   outputField.id = 'lc-output-field';
@@ -272,7 +279,7 @@ export function buildRoom(doc: Doc, opts: { role: Role; maxGuests?: number }): R
   const output = el(doc, 'select');
   output.id = 'lc-output';
   outputField.append(i18n(doc, 'span', 'field-label', 'liveOutput'), output);
-  settings.append(headLabel, outputField);
+  settings.append(headLabel, distanceTip, outputField);
 
   const controls = el(doc, 'div', 'lc-controls');
   const mute = button(doc, 'lc-mute', 'btn-ghost lc-ctl', 'talkMute');
@@ -366,7 +373,7 @@ export function buildRoom(doc: Doc, opts: { role: Role; maxGuests?: number }): R
   root.append(live, ended, problem);
   return {
     root, live, status, statusText, tier, tierNotice, tierNoticeText, tierNoticeClose, partners, dirOut, dirIn, sameLang, announce, stage, mine, mineText, speaking, voiceNote,
-    notice, historyTitle, history, credits, headphones, outputField, output, mute, muteLabel, end,
+    notice, historyTitle, history, credits, headphones, distanceTip, outputField, output, mute, muteLabel, end,
     confirm, confirmText, endYes, endNo, ended,
     endedText, endedAction, problem, problemText, retry, buy, home,
   };

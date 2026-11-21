@@ -305,6 +305,8 @@
 .lc-credits[data-low='true'] { color: var(--warning); }
 
 .lc-settings { display: flex; flex-direction: column; gap: 0.8rem; }
+.lc-distance-tip { margin: 0; }
+.lc-distance-tip[hidden] { display: none; }
 .lc-output select { width: 100%; min-height: var(--tap-target); }
 .lc-controls {
   position: sticky; bottom: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;

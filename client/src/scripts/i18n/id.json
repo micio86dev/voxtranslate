@@ -921,6 +921,7 @@
   "liveEndConfirm": "Akhiri percakapan untuk Anda berdua?",
   "liveHeadphones": "Saya memakai headphone",
   "liveHeadphonesHint": "Menonaktifkan pelindung gema agar Anda bisa berbicara saat terjemahan diputar. Gunakan hanya dengan headphone.",
+  "liveDistanceTip": "Tips: jaga jarak kedua ponsel sekitar satu meter, atau gunakan headphone, agar setiap mikrofon hanya menangkap suaranya sendiri.",
   "liveOutput": "Output audio",
   "liveOutputDefault": "Default",
   "liveOutputFailed": "Gagal mengganti output audio.",

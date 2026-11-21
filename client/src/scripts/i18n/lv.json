@@ -921,6 +921,7 @@
   "liveEndConfirm": "Beigt sarunu jums abiem?",
   "liveHeadphones": "Es lietoju austiņas",
   "liveHeadphonesHint": "Izslēdz atbalss aizsardzību, lai jūs varētu runāt tulkojuma laikā. Izmantojiet tikai ar austiņām.",
+  "liveDistanceTip": "Padoms: turiet tālruņus aptuveni metra attālumā vienu no otra vai izmantojiet austiņas, lai katrs mikrofons uztvertu tikai savu balsi.",
   "liveOutput": "Audio izvade",
   "liveOutputDefault": "Noklusējums",
   "liveOutputFailed": "Neizdevās pārslēgt audio izvadi.",

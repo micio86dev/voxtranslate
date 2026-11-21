@@ -921,6 +921,7 @@
   "liveEndConfirm": "Lopetetaanko keskustelu teiltä molemmilta?",
   "liveHeadphones": "Käytän kuulokkeita",
   "liveHeadphonesHint": "Poistaa kaikuneston käytöstä, jotta voit puhua käännöksen päälle. Käytä vain kuulokkeiden kanssa.",
+  "liveDistanceTip": "Vinkki: pidä puhelimet noin metrin päässä toisistaan tai käytä kuulokkeita, jotta kukin mikrofoni kuulee vain oman äänensä.",
   "liveOutput": "Äänen ulostulo",
   "liveOutputDefault": "Oletus",
   "liveOutputFailed": "Äänen ulostuloa ei voitu vaihtaa.",

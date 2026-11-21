@@ -921,6 +921,7 @@
   "liveEndConfirm": "Das Gespräch für euch beide beenden?",
   "liveHeadphones": "Ich benutze Kopfhörer",
   "liveHeadphonesHint": "Schaltet den Echoschutz aus, damit du über die Übersetzung hinweg sprechen kannst. Nur mit Kopfhörern verwenden.",
+  "liveDistanceTip": "Tipp: Halten Sie die Telefone etwa einen Meter auseinander oder verwenden Sie Kopfhörer, damit jedes Mikrofon nur die eigene Stimme aufnimmt.",
   "liveOutput": "Audioausgabe",
   "liveOutputDefault": "Standard",
   "liveOutputFailed": "Die Audioausgabe konnte nicht gewechselt werden.",

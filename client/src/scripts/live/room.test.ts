@@ -236,6 +236,20 @@ describe('mountRoom', () => {
     expect(made[0].hp).toBe(true);
   });
 
+  it('advises keeping the phones apart, and drops the advice once headphones are on', () => {
+    mount();
+    const tip = host.querySelector('#lc-distance-tip') as HTMLElement;
+    const box = host.querySelector('#lc-headphones') as HTMLInputElement;
+    expect(tip.hidden).toBe(false);
+    expect(tip.textContent).toBe(en.liveDistanceTip);
+    box.checked = true;
+    box.dispatchEvent(new Event('change'));
+    expect(tip.hidden).toBe(true);
+    box.checked = false;
+    box.dispatchEvent(new Event('change'));
+    expect(tip.hidden).toBe(false);
+  });
+
   it('shows the output selector only when the browser supports it, and applies a choice', async () => {
     mount();
     const c = made[0];

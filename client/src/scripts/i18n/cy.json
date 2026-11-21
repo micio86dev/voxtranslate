@@ -921,6 +921,7 @@
   "liveEndConfirm": "Gorffen y sgwrs i'r ddau ohonoch?",
   "liveHeadphones": "Rwy'n defnyddio clustffonau",
   "liveHeadphonesHint": "Yn diffodd y gwarchodwr atseinio fel y gallwch siarad dros y cyfieithiad. Defnyddiwch ef gyda chlustffonau yn unig.",
+  "liveDistanceTip": "Awgrym: cadwch y ffonau tua metr oddi wrth ei gilydd, neu defnyddiwch glustffonau, fel bod pob meicroffon yn codi ei lais ei hun yn unig.",
   "liveOutput": "Allbwn sain",
   "liveOutputDefault": "Diofyn",
   "liveOutputFailed": "Methwyd newid yr allbwn sain.",
