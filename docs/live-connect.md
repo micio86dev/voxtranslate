@@ -115,9 +115,10 @@ error, never a fallback. Two limits against abuse of the public surface are tuna
 `LIVE_DESK_MAX_WAITING_PER_IP` (default 2: waiting sessions one client address may hold at one
 desk) and `LIVE_AUDIO_MAX_BYTES_PER_SEC` (default 72 000: the microphone budget of one phone, see
 *`/ws/live`*). `LIVE_MAX_GUESTS` (default and ceiling 3, clamped to 1-3, junk keeps the default) is the
-most guests a host may ask one link to admit; a room holds four peers, so it can only be lowered. The echo filter has two knobs, `LIVE_ECHO_FILTER` (default on) and `LIVE_ECHO_SIM`
+most guests a host may ask one link to admit; a room holds four peers, so it can only be lowered. The echo filter has three knobs, `LIVE_ECHO_FILTER` (default on), `LIVE_ECHO_SIM`
 (default 0.6, clamped to 0.3-0.95; junk falls back to the default instead of switching the feature
-off), see *Echo filter* below. `LIVE_ENHANCED_CALLS_PER_MIN` (default 600, 10-100000, a bad value is a configuration
+off) and `LIVE_ECHO_LEVEL` (Enhanced only, default 2, clamped to 1.25-10, `0`/`off` switches that one
+rule off; junk keeps the default), see *Echo filter* below. `LIVE_ENHANCED_CALLS_PER_MIN` (default 600, 10-100000, a bad value is a configuration
 error like the other limits) caps the translation calls one Enhanced conversation may make a minute, see *Cost ceilings*.
 
 ## API
@@ -370,7 +371,7 @@ A listener whose language is the speaker's gets the original as a caption, no tr
 | Direction | Frame | Notes |
 |---|---|---|
 | client → server | `{"type":"start"}` / `{"type":"stop"}` / `{"type":"mute_audio","muted"}` | the SAME frames as the audio path: `start` opens the seat's meter (the "speaking" state, at the Enhanced rate) and creates no engine session; `stop` closes it; `mute_audio` is enforced: a muted seat's text is ignored |
-| client → server | `{"type":"translate_text","segment_id","text","final":bool,"lang"?}` | only while started and unmuted. `segment_id`: string of 1-64 chars or an integer, echoed on `enhanced_speak`. `text` is trimmed, 1-1000 chars (a longer **final** is dropped, `error{code:"text_too_long"}`; a longer **partial** is cut to its last 400 characters, see *Cost ceilings*). At most 8 frames/s per seat (burst 8), and at most **2 partials/s** (burst 2); past that frames are **dropped**, not queued, and not billed. `lang` is ignored: the seat's declared language is authoritative |
+| client → server | `{"type":"translate_text","segment_id","text","final":bool,"lang"?}` | only while started and unmuted. `segment_id`: string of 1-64 chars or an integer, echoed on `enhanced_speak`. `text` is trimmed, 1-1000 chars (a longer **final** is dropped, `error{code:"text_too_long"}`; a longer **partial** is cut to its last 400 characters, see *Cost ceilings*). At most 8 frames/s per seat (burst 8), and at most **2 partials/s** (burst 2); past that frames are **dropped**, not queued, and not billed. `lang` is ignored: the seat's declared language is authoritative. `level` (optional whole number, mean absolute PCM16 sample of the phone's microphone while it spoke, capped at 32768) feeds the *Level guard*; anything that is not a whole number reads as unknown and costs the sentence nothing |
 | server → listener | `subtitle_interim{speaker_id,speaker_name,text,lang,original?}` | for a non-final frame. `lang` is the SPEAKER's language, `text` the translation, `original` the speaker's words (absent for a same-language listener, whose `text` is the original). Exactly the engine tiers' frame |
 | server → listener | `subtitle_final{speaker_id,speaker_name,original,lang,translations:{<listener lang>:text}}` | for a final frame, exactly the engine tiers' frame |
 | server → listener | `{"type":"enhanced_speak","speaker_id","segment_id","lang","text","voice_id":string|null}` | final segments only; `lang` is the listener's language, `text` what to speak. `voice_id` is the HOST's cloned voice only when the session has `use_voice_clone` and the speaker is the host; otherwise `null` (use the default voice). A guest never has one |
@@ -409,8 +410,8 @@ which this meter can only approximate through text frames.
 ### Text-level echo guard
 
 Two phones side by side: the partner's phone hears the speaker too, and ITS Cartesia STT sends the
-speaker's words as its own `translate_text`. There are no microphone levels in this mode, so the guard is
-**order based**: a frame (partial or final, at least **three** words, or one long token of a script written
+speaker's words as its own `translate_text`. This guard reads no microphone levels (the *Level guard* below
+does) and is **order based**: a frame (partial or final, at least **three** words, or one long token of a script written
 without spaces) whose normalised text is at least **0.85** similar (`LIVE_ECHO_SIM` can only make this
 stricter; the same `echo::normalize`/`similarity` as the audio filter) to something **another seat sent in
 the last 2.5 s** is dropped: the real speaker's own STT is normally ahead of a bystander's. It is counted in
@@ -432,12 +433,45 @@ A guard that decides "who said it first" is also a way to silence somebody, so i
 
 **Limits, stated honestly:** when the bystander's STT happens to win the race, the echo is kept and the real
 words are dropped (nothing breaks the tie without loudness); a cross-language echo (a Spanish ear
-transcribing Italian) is too garbled to match. A deliberate adversary can still win ONE segment: a guest
+transcribing Italian) is too garbled to match, which is what the *Level guard* below is for. A deliberate adversary can still win ONE segment: a guest
 who sends the exact words of a long, predictable host sentence a moment before the host says it gets that
 segment dropped, and a verbatim repeat of a 3+-word sentence within 4 s of its translation being spoken is
 taken for the phone's own TTS. Each costs one segment, never the conversation, and nobody is billed for a
 dropped frame. The audio-level echo filter is bypassed in Enhanced (it would only hold captions back) and
 applies again after a fallback.
+
+### Level guard (Enhanced, no audio on the server)
+
+**Symptom.** Two phones side by side, Italian host and Spanish guest. The guest's microphone hears the host
+through a Spanish recogniser, so the "Spanish" text is a garble of Italian. It resembles nothing the host
+said, the text guard above never matches it, and the host's phone speaks the host's own sentence back.
+
+**Rule.** Every `translate_text` carries `level`, the phone's smoothed microphone level (client: mean
+absolute sample, a loud moment fading over about a second). The server keeps it per seat with the same
+smoother the audio path uses (`SessionLatency::mic_frame`). A sentence is dropped as an echo when **another
+seat's microphone carried speech in the last 1.5 s and its level is more than `LIVE_ECHO_LEVEL` times this
+seat's own**: whoever is next to their microphone is the speaker. It is checked before the text guard and
+judges short replies too, since it does not read words.
+
+**Full duplex.** Two people talking over each other are each next to their own microphone, so neither
+level is twice the other's and both sentences pass. Only a phone that is clearly the quieter one while the
+other is speaking loses its text.
+
+**Automatic gain is off for Enhanced.** AGC would lift the far-away voice in the guest's microphone to the
+level of a near one and flatten the comparison. The client opens the Enhanced microphone with
+`autoGainControl: false` (`micConstraints(true)` in `live/conversation.ts`); echo cancellation stays on and
+every other tier keeps AGC.
+
+**Fails safe.** A level of 0 is "unknown" and never suppresses: an older client sends none, a muted or silent
+seat reads 0, a level older than 3 s reads 0. `LIVE_ECHO_FILTER=0` switches this guard off together with
+the text guard; `LIVE_ECHO_LEVEL=0` switches only this one.
+
+**Verified / not verified.** Verified: the rule and the knob (`state.rs`, `config.rs`), the frame parsing,
+the client's measurement, and the whole path through the real socket (`tests/live_enhanced.rs`: a quiet
+garbled echo is dropped and never translated, a loud reply over the host is heard, a phone with no level
+is never judged). **Not verified: two real phones.** The ratio 2 is a first guess: too low swallows a
+genuine reply from a phone held far from its owner's mouth, too high lets an echo through. Counted in the
+same metric and diagnostics event as the other guards (`"text": true`).
 
 ### Cost ceilings (what one seat can make the translation hop do)
 

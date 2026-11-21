@@ -516,6 +516,18 @@ async fn text(ws: &mut Ws, segment: &str, body: &str, is_final: bool) {
     .await;
 }
 
+/// A sentence with the phone's reading of its own microphone (mean absolute PCM16 sample).
+async fn text_at(ws: &mut Ws, segment: &str, body: &str, is_final: bool, level: u32) {
+    say(
+        ws,
+        json!({
+            "type": "translate_text", "segment_id": segment, "text": body,
+            "final": is_final, "level": level,
+        }),
+    )
+    .await;
+}
+
 fn of_type<'a>(frames: &'a [Value], ty: &str) -> Vec<&'a Value> {
     frames.iter().filter(|v| v["type"] == ty).collect()
 }
@@ -1576,6 +1588,116 @@ async fn what_the_partner_phone_hears_and_transcribes_is_dropped_as_an_echo() {
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
     assert!(found, "the suppression was never reported");
+}
+
+// ===== the level guard: whose mouth was it, when the words cannot say =====================
+
+#[tokio::test]
+async fn a_garbled_echo_of_the_other_phones_voice_is_dropped_by_loudness_alone() {
+    let srv = srv!(Opts::enhanced());
+    let c = convo(&srv, Make::default()).await;
+    let mut host = open(&srv, &c.host_token).await;
+    let mut guest = open(&srv, &c.guests[0].0).await;
+    start(&mut host).await;
+    start(&mut guest).await;
+
+    // The host talks into its own microphone: loud.
+    for (i, words) in [
+        "buongiorno a tutti quanti voi",
+        "oggi vorrei parlarvi del nuovo progetto",
+        "partiamo dal budget e dai tempi",
+    ]
+    .iter()
+    .enumerate()
+    {
+        text_at(&mut host, &format!("h{i}"), words, true, 2000).await;
+    }
+    // All three sentences reach the guest before the baseline is taken.
+    for _ in 0..3 {
+        wait_for(&mut guest, |v| v["type"] == "enhanced_speak")
+            .await
+            .unwrap();
+    }
+    let before = srv.groq.calls();
+
+    // The guest's phone, next to it, hears that Italian through a Spanish recogniser: nothing like
+    // the host's words, so the text guard is blind. Its microphone is far quieter than the host's.
+    text_at(
+        &mut guest,
+        "g1",
+        "kiao vo con agua los pronto zeta",
+        true,
+        200,
+    )
+    .await;
+    let host_got = collect(&mut host, 900).await;
+    assert!(
+        host_got.iter().all(|v| !is_listener_frame(v)),
+        "the host was played back its own voice: {host_got:?}"
+    );
+    assert_eq!(srv.groq.calls(), before, "an echo is never translated");
+}
+
+#[tokio::test]
+async fn two_people_talking_at_the_same_time_are_both_heard() {
+    let srv = srv!(Opts::enhanced());
+    let c = convo(&srv, Make::default()).await;
+    let mut host = open(&srv, &c.host_token).await;
+    let mut guest = open(&srv, &c.guests[0].0).await;
+    start(&mut host).await;
+    start(&mut guest).await;
+
+    // Full duplex: each mouth is next to its own microphone, so neither is far louder.
+    text_at(&mut host, "h1", "buongiorno a tutti quanti voi", true, 2000).await;
+    text_at(
+        &mut guest,
+        "g1",
+        "hola amigos tengo algo que decir",
+        true,
+        1900,
+    )
+    .await;
+    text_at(
+        &mut host,
+        "h2",
+        "oggi vorrei parlarvi del progetto",
+        true,
+        2000,
+    )
+    .await;
+    text_at(
+        &mut guest,
+        "g2",
+        "primero quiero hablar del presupuesto",
+        true,
+        1900,
+    )
+    .await;
+
+    let speak_host = wait_for(&mut host, |v| v["type"] == "enhanced_speak")
+        .await
+        .expect("the guest was talking over the host and still has to be heard");
+    assert_eq!(speak_host["segment_id"], "g1");
+    wait_for(&mut guest, |v| v["type"] == "enhanced_speak")
+        .await
+        .expect("and the host as well");
+}
+
+#[tokio::test]
+async fn a_phone_that_reports_no_level_is_never_judged_by_loudness() {
+    let srv = srv!(Opts::enhanced());
+    let c = convo(&srv, Make::default()).await;
+    let mut host = open(&srv, &c.host_token).await;
+    let mut guest = open(&srv, &c.guests[0].0).await;
+    start(&mut host).await;
+    start(&mut guest).await;
+    text_at(&mut host, "h1", "buongiorno a tutti quanti voi", true, 2000).await;
+    // An older client: no `level` at all.
+    text(&mut guest, "g1", "hola amigos tengo algo que decir", true).await;
+    let speak = wait_for(&mut host, |v| v["type"] == "enhanced_speak")
+        .await
+        .expect("unknown level, so nothing is dropped");
+    assert_eq!(speak["segment_id"], "g1");
 }
 
 #[tokio::test]
