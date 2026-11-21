@@ -48,6 +48,13 @@ const DEFAULT_ECHO_FILTER: bool = true;
 /// How alike the other phone's "original" words must be to this phone's own recent words before
 /// they are treated as an echo of them.
 const DEFAULT_ECHO_SIM: f64 = 0.6;
+/// Enhanced only (no audio reaches the server): a phone's text is dropped as the other phone's voice
+/// when that phone's microphone is more than this many times louder. See
+/// `SessionLatency::level_echo`. `0` (or `off`) switches the rule off.
+const DEFAULT_ECHO_LEVEL: f64 = 2.0;
+/// Under the low end ordinary differences in two phones' microphones look like an echo; over the
+/// high end a phone next to the speaker is never "louder enough".
+const ECHO_LEVEL_RANGE: (f64, f64) = (1.25, 10.0);
 /// Translation calls one Enhanced conversation may make a minute. An honest single speaker in a
 /// three-language room uses about 450 (interim captions at 2 a second to three languages, plus a
 /// final every couple of seconds); this leaves headroom for two people talking at once.
@@ -108,6 +115,9 @@ pub struct LiveConfig {
     pub echo_filter: bool,
     /// Similarity threshold of that filter, already clamped to its allowed range.
     pub echo_sim: f64,
+    /// Enhanced: how many times louder another phone's microphone must be for this phone's text to
+    /// be treated as that phone's voice. `0.0` is off. Already clamped.
+    pub echo_level_ratio: f64,
     /// Translation calls (one per target language per segment) one Enhanced conversation may make
     /// in a minute, all its seats together. See `enhanced::TranslationBudget`.
     pub enhanced_calls_per_min: u32,
@@ -137,6 +147,7 @@ impl LiveConfig {
             finalize_grace_secs: DEFAULT_FINALIZE_GRACE_SECS,
             echo_filter: DEFAULT_ECHO_FILTER,
             echo_sim: DEFAULT_ECHO_SIM,
+            echo_level_ratio: DEFAULT_ECHO_LEVEL,
             enhanced_calls_per_min: DEFAULT_ENHANCED_CALLS_PER_MIN,
             status_check_ms: DEFAULT_STATUS_CHECK_MS,
         }
@@ -234,6 +245,15 @@ impl LiveConfig {
                 .map_or(DEFAULT_ECHO_SIM, |n| {
                     n.clamp(ECHO_SIM_RANGE.0, ECHO_SIM_RANGE.1)
                 }),
+            echo_level_ratio: match get("LIVE_ECHO_LEVEL") {
+                Some(v) if is_falsy(&v) => 0.0,
+                other => other
+                    .and_then(|v| v.trim().parse::<f64>().ok())
+                    .filter(|n| n.is_finite())
+                    .map_or(DEFAULT_ECHO_LEVEL, |n| {
+                        n.clamp(ECHO_LEVEL_RANGE.0, ECHO_LEVEL_RANGE.1)
+                    }),
+            },
             enhanced_calls_per_min: number(
                 "LIVE_ENHANCED_CALLS_PER_MIN",
                 i64::from(DEFAULT_ENHANCED_CALLS_PER_MIN),
@@ -459,5 +479,44 @@ mod tests {
         for junk in ["abc", "", "NaN", "inf"] {
             assert_eq!(with(&[("LIVE_ECHO_SIM", junk)]).echo_sim, 0.6, "{junk:?}");
         }
+    }
+
+    #[test]
+    fn the_enhanced_level_rule_is_on_by_default_clamped_and_can_be_switched_off() {
+        let base = [("LIVE_CONNECT_ENABLED", "1"), ("LIVE_TOKEN_KEY", KEY)];
+        let with = |pairs: &[(&'static str, &'static str)]| {
+            let mut all = base.to_vec();
+            all.extend_from_slice(pairs);
+            LiveConfig::load(env(&all)).unwrap()
+        };
+        assert_eq!(with(&[]).echo_level_ratio, 2.0);
+        assert_eq!(LiveConfig::disabled().echo_level_ratio, 2.0);
+        assert_eq!(with(&[("LIVE_ECHO_LEVEL", "3.5")]).echo_level_ratio, 3.5);
+        assert_eq!(
+            with(&[("LIVE_ECHO_LEVEL", "1")]).echo_level_ratio,
+            1.25,
+            "clamped up"
+        );
+        assert_eq!(
+            with(&[("LIVE_ECHO_LEVEL", "99")]).echo_level_ratio,
+            10.0,
+            "clamped down"
+        );
+        for off in ["0", "off", "false", " No "] {
+            assert_eq!(
+                with(&[("LIVE_ECHO_LEVEL", off)]).echo_level_ratio,
+                0.0,
+                "{off}"
+            );
+        }
+        for junk in ["abc", "", "NaN", "inf"] {
+            assert_eq!(
+                with(&[("LIVE_ECHO_LEVEL", junk)]).echo_level_ratio,
+                2.0,
+                "{junk:?}"
+            );
+        }
+        // The text-level filter's own switch does not touch it, and vice versa.
+        assert_eq!(with(&[("LIVE_ECHO_FILTER", "0")]).echo_level_ratio, 2.0);
     }
 }

@@ -756,7 +756,7 @@ async fn handle_live_peer(socket: WebSocket, state: AppState, auth: PeerAuth) {
                         if let Some(frame) = EnhancedFrame::parse(&text) {
                             let still_enhanced = is_text_mode(&state, &auth);
                             match frame {
-                                EnhancedFrame::TranslateText { segment_id, text: body, is_final, .. } => {
+                                EnhancedFrame::TranslateText { segment_id, text: body, is_final, level, .. } => {
                                     if !still_enhanced {
                                         // Standard (or fallen back): nothing translates text here.
                                         if !std::mem::replace(&mut told_not_enhanced, true) {
@@ -797,8 +797,16 @@ async fn handle_live_peer(socket: WebSocket, state: AppState, auth: PeerAuth) {
                                     if !frame_gate.admit(now) {
                                         continue;
                                     }
+                                    // No audio reaches the server in Enhanced, so the phone's own
+                                    // reading of its microphone is the only way to tell whose mouth
+                                    // this was. Recorded even for an echo: it is also evidence for
+                                    // the OTHER seat's next frame.
+                                    if let Some(l) = level {
+                                        latency.mic_frame(seat, now, l, l >= VOICED_MEAN_ABS);
+                                    }
                                     if state.live.config.echo_filter
-                                        && latency.text_echo(seat, &auth.lang, now, body, state.live.config.echo_sim)
+                                        && (latency.level_echo(seat, now, state.live.config.echo_level_ratio)
+                                            || latency.text_echo(seat, &auth.lang, now, body, state.live.config.echo_sim))
                                     {
                                         // What another seat sent first: this phone heard it, it did
                                         // not say it. Counted, never logged, never billed.

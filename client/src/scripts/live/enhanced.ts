@@ -145,6 +145,22 @@ export function chunkText(text: string, max: number = MAX_TEXT_CHARS): string[] 
   return out;
 }
 
+/**
+ * Mean absolute sample of a PCM16 little-endian chunk (0 to 32768): the unit the server meters
+ * microphones in. Sign is ignored, an empty chunk is silence.
+ */
+export function meanAbsPcm16(buf: ArrayBuffer): number {
+  const n = Math.floor(buf.byteLength / 2);
+  if (n === 0) return 0;
+  const view = new DataView(buf);
+  let sum = 0;
+  for (let i = 0; i < n; i++) sum += Math.abs(view.getInt16(i * 2, true));
+  return sum / n;
+}
+
+/** How much of the last level survives one ~100 ms chunk: a loud word fades over about a second. */
+const LEVEL_DECAY = 0.9;
+
 export class EnhancedEngine implements EnhancedLike {
   private session: CartesiaSession | null = null;
   private refreshTimer: ReturnType<typeof setTimeout> | null = null;
@@ -154,6 +170,8 @@ export class EnhancedEngine implements EnhancedLike {
   /** STT is wanted: started and not muted. */
   private active = false;
   private gated = false;
+  /** My microphone's level, fast up and slowly down: what `translate_text` reports (see `level`). */
+  private micLevel = 0;
   /** `start` was sent and `stop` has not been: the seat's meter is open on the server. */
   private meterOpen = false;
   private stt: SttState | null = null;
@@ -367,6 +385,9 @@ export class EnhancedEngine implements EnhancedLike {
       const graph = await (this.deps.openGraph ?? openSttGraph)(
         this.deps.stream,
         (pcm) => {
+          // Measured even while the echo guard holds the microphone back: the level describes the
+          // room, whatever is sent to the recogniser.
+          this.micLevel = Math.max(meanAbsPcm16(pcm), this.micLevel * LEVEL_DECAY);
           if (this.stt === stt && !this.gated && stt.ws.readyState === 1) stt.ws.send(pcm);
         },
         () => this.stt !== stt,
@@ -448,7 +469,15 @@ export class EnhancedEngine implements EnhancedLike {
 
   private sendText(segmentId: string, text: string, final: boolean): void {
     this.lastSentAt = this.now();
-    this.deps.control({ type: 'translate_text', segment_id: segmentId, text, final });
+    // `level` lets the server tell my voice from my voice heard by the OTHER phone's microphone:
+    // whoever is louder in their own microphone is the one speaking (spec 0121, full duplex).
+    this.deps.control({
+      type: 'translate_text',
+      segment_id: segmentId,
+      text,
+      final,
+      level: Math.round(this.micLevel),
+    });
   }
 
   /** Partials are coalesced: at most one per interval, always the LATEST text. */

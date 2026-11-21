@@ -1152,6 +1152,34 @@ async function enhancedConnected(over: Record<string, unknown> = {}) {
 }
 
 describe('Enhanced mode', () => {
+  describe('microphone gain', () => {
+    // Enhanced tells whose mouth a sentence came from by comparing microphone levels, so its
+    // microphone is opened without automatic gain; every other tier keeps it.
+    const audioOf = async (over: Record<string, unknown>) => {
+      const asked: MediaStreamConstraints[] = [];
+      const h = enhancedHarness({
+        getMedia: async (c: MediaStreamConstraints) => {
+          asked.push(c);
+          return { getTracks: () => [], getAudioTracks: () => [] } as unknown as MediaStream;
+        },
+        ...over,
+      });
+      await h.convo.start();
+      return asked[0].audio as MediaTrackConstraints;
+    };
+
+    it('opens the Enhanced microphone without automatic gain, and keeps the echo canceller', async () => {
+      const audio = await audioOf({});
+      expect(audio.autoGainControl).toBe(false);
+      expect(audio.echoCancellation).toBe(true);
+    });
+
+    it('leaves automatic gain on for the Standard tier', async () => {
+      const audio = await audioOf({ engine: 'gemini_live_translate' });
+      expect(audio.autoGainControl).toBe(true);
+    });
+  });
+
   beforeEach(() => {
     enhancedEngines = [];
   });

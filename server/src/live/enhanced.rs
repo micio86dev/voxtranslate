@@ -157,6 +157,10 @@ pub enum EnhancedFrame {
         #[serde(default)]
         #[allow(dead_code)]
         lang: Option<String>,
+        /// The phone's smoothed microphone level (mean absolute PCM16 sample) while it said this.
+        /// Optional: an older client sends none, which reads as "unknown" and never suppresses.
+        #[serde(default, deserialize_with = "lenient_level")]
+        level: Option<u32>,
     },
     #[serde(rename = "enhanced_fallback")]
     Fallback {
@@ -164,6 +168,16 @@ pub enum EnhancedFrame {
         #[allow(dead_code)]
         reason: Option<String>,
     },
+}
+
+/// A `level` that is not a whole number is "unknown", never a reason to lose the sentence it came
+/// with; a huge one is capped at the loudest a PCM16 sample can be.
+fn lenient_level<'de, D>(d: D) -> Result<Option<u32>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let v = <Option<Value> as Deserialize>::deserialize(d)?;
+    Ok(v.and_then(|v| v.as_u64()).map(|n| n.min(32_768) as u32))
 }
 
 impl EnhancedFrame {
@@ -816,6 +830,30 @@ mod tests {
                 ..
             })
         ));
+        let level = |frame: &str| match EnhancedFrame::parse(frame) {
+            Some(EnhancedFrame::TranslateText { level, .. }) => level,
+            other => panic!("not a translate_text: {other:?}"),
+        };
+        assert_eq!(
+            level(r#"{"type":"translate_text","segment_id":"s","text":"ciao","level":1250}"#),
+            Some(1250)
+        );
+        assert_eq!(
+            level(r#"{"type":"translate_text","segment_id":"s","text":"ciao"}"#),
+            None
+        );
+        assert_eq!(
+            level(r#"{"type":"translate_text","segment_id":"s","text":"ciao","level":9999999}"#),
+            Some(32_768),
+            "capped"
+        );
+        // A bad level never costs the sentence: it just reads as unknown.
+        for bad in ["-5", "\"loud\"", "null", "1.5", "[1]"] {
+            let frame = format!(
+                r#"{{"type":"translate_text","segment_id":"s","text":"ciao","level":{bad}}}"#
+            );
+            assert_eq!(level(&frame), None, "{bad}");
+        }
         assert!(matches!(
             EnhancedFrame::parse(r#"{"type":"enhanced_fallback","reason":"token_refused"}"#),
             Some(EnhancedFrame::Fallback { .. })
